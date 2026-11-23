@@ -86,7 +86,7 @@ TURING = {
         ]},
     ],
     "kpis": [
-        ("8 GB + 4 GB", "memory windows, up from 256 MB"),
+        ("16–32×", "bigger window, covers all VRAM"),
         ("20×", "less delay between the GPUs"),
         ("+34–78%", "faster data exchange"),
         ("0 errors", "in 1.3 TB of test copies"),
