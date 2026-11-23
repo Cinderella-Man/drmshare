@@ -205,10 +205,54 @@ def page(d):
 '''
 
 
+# Pascal pair: two P106-090 in the test rig, NVIDIA's stock driver 580 (docs/pascal-and-volta.md). No NCCL run, so the
+# panels use p2pBandwidthLatencyTest only: latency GPU- and CPU-timed (mean of both directions), bandwidth both ways
+# and one way (mean of both directions).
+PASCAL = {
+    "latency": [
+        {"title": "Copying data from one GPU to the other",
+         "desc": "time until a small copy arrives, timed on the GPU, both directions averaged",
+         "max": 25, "unit": "µs", "rows": [
+            ("P106-090 pair", 22.3, 3.1),
+        ]},
+        {"title": "The same copy, as the program sees it",
+         "desc": "time per copy measured by the calling program, launch overhead included",
+         "max": 25, "unit": "µs", "rows": [
+            ("P106-090 pair", 5.7, 1.7),
+        ]},
+    ],
+    "nccl": [
+        {"title": "Both GPUs sending to each other at once",
+         "desc": "where P2P helps: each direction crosses the slow links once instead of twice",
+         "max": 1.6, "unit": "GB/s", "rows": [
+            ("P106-090 pair", 1.09, 1.48),
+        ]},
+        {"title": "One GPU sending to the other",
+         "desc": "capped by the cards' own PCIe 1.0 x4 link either way, both directions averaged",
+         "max": 1.6, "unit": "GB/s", "rows": [
+            ("P106-090 pair", 0.78, 0.84),
+        ]},
+    ],
+    "kpis": [
+        ("0 patches", "NVIDIA's own driver 580"),
+        ("7×", "less delay between the GPUs"),
+        ("+36%", "faster two-way data exchange"),
+        ("0 errors", "in 1.5 TB of test copies"),
+    ],
+    "page_title": "Pascal P2P infographic",
+    "eyebrow": "UBUNTU 26.04 · NVIDIA DRIVER 580, UNPATCHED · PASCAL",
+    "h1": 'GPU-to-GPU <span class="a">P2P</span> on P106-090 mining cards',
+    "sub": "Two Pascal mining cards (GP106) on NVIDIA's last Pascal driver, no patch, no override. Every byte checked.",
+    "nccl_psub": "GB/s, higher is better · p2pBandwidthLatencyTest",
+    "foot": "Needs IOMMU passthrough and a board that routes peer traffic (a mining board did not). The cards' PCIe 1.0 x4 link caps bandwidth.",
+}
+
+
 if __name__ == "__main__":
     import sys
-    which = sys.argv[1:] or ["rtx30", "turing"]
-    for name, data, fname in [("rtx30", DATA, "infographic.html"), ("turing", TURING, "infographic-turing.html")]:
+    which = sys.argv[1:] or ["rtx30", "turing", "pascal"]
+    for name, data, fname in [("rtx30", DATA, "infographic.html"), ("turing", TURING, "infographic-turing.html"),
+                              ("pascal", PASCAL, "infographic-pascal.html")]:
         if name in which:
             out = Path(__file__).with_name(fname)
             out.write_text(page(data))
