@@ -1,0 +1,5 @@
+# compiled test programs
+tools/p2p_access
+tools/p2p_bandwidth
+tools/pcie_bandwidth
+tools/p2pBandwidthLatencyTest
