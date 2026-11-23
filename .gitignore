@@ -3,3 +3,4 @@ tools/p2p_access
 tools/p2p_bandwidth
 tools/pcie_bandwidth
 tools/p2pBandwidthLatencyTest
+tools/turing/libchipid-shim.so
