@@ -324,11 +324,26 @@ of the three for generation) and 18 % on prompts. Split by layer still reads a l
   packages again as in [procedure.md step 3](procedure.md#3-nvidia-driver-6157109-open-kernel-modules-from-the-ubuntu-archive);
   `~/nvidia-packages-before-580.txt` lists what was there.
 
+## NVIDIA's ForceP2P key: the kernel says yes, CUDA still says no
+
+NVIDIA's driver reads a documented registry key, `ForceP2P` ([pascal-and-volta.md](pascal-and-volta.md#forcep2p-overriding-the-chipset-check)).
+In 580's source (`p2p_caps.c`) it is checked before the chipset, topology and same-architecture tests. Loaded with
+`NVreg_RegistryDwords="ForceP2P=0x11"` on the V100 + RTX 3090 (read-only check, no data moved):
+
+| | Stock 580 | `ForceP2P=0x11` |
+|---|---|---|
+| `nvidia-smi topo -p2p r` / `w` | `NS` / `NS` | **`OK` / `OK`** |
+| `nvidia-smi topo -p2p a` (atomics) | `NS` | `NS` |
+| `cudaDeviceCanAccessPeer` ([`tools/p2p_access.cu`](../tools/p2p_access.cu)), both ways | NO | **NO** |
+
+The kernel driver accepts the pair, CUDA does not: `libcuda` has its own architecture check, the one that also
+stops the RTX 2060 + RTX 3060 ([mixed-generations.md](mixed-generations.md#why-cuda-says-no)). CUDA P2P for this
+pair would also need that check patched (as route 1 there does, on driver 615), and a test that forced P2P between a
+data-center card and a GeForce card actually moves data correctly. Neither was tried. The memory sharing on this page
+needs neither.
+
 ## Not tested yet
 
-- NVIDIA's documented `ForceP2P` key for this pair. In 580's source (`p2p_caps.c`) it is checked before the
-  same-architecture test, so the kernel may report the pair as P2P-capable; CUDA's own architecture check would still
-  refuse it.
 - A boot install of the changed `nvidia-drm`, and other GPU pairs (any two NVIDIA GPUs with Vulkan on driver 580 should
   behave the same; only this pair and two V100s were run).
 
