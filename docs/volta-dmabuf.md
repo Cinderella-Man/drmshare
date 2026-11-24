@@ -236,6 +236,30 @@ the 3090's memory drop (2.93 GB/s at 64 MiB): write across, do not read across.
 Two V100s on the second machine: 1.67 / 1.63 GB/s writes, 0.91 / 1.12 GB/s reads, 20/20 soak runs byte-exact. NVIDIA's
 native CUDA P2P between the same two V100s: 1.62 / 1.67 GB/s. Both are capped by that board's PCIe 2.0 x4 chipset slot.
 
+### V100 + RTX 2060 (Volta + Turing)
+
+Same test rig, the V100 still in the chipset slot, an RTX 2060 (TU104) in the CPU slot; same driver and steps.
+
+**With the 2060's stock 256 MB window**, the memory sharing works for buffers that fit in it: 64 MiB both ways byte-exact
+(writes 2.92 / 3.28 GB/s, reads 1.17 / 2.87 GB/s, a 4-byte copy in 1.15 / 2.17 µs), and the 2060 shared up to 224 MiB.
+At 512 MiB its buffer no longer fits the window: `nvidia-drm` logs `Failed to map NvKmsKapiMemory` and the import is
+refused (`no common memory type`). No crash, no wrong data.
+
+**With the window enlarged to 8 GB** ([turing.md](turing.md) T1-T3: the boot-time resize after the USB-C step), 1 GiB,
+every word checked:
+
+| | Through system memory (CUDA's `cudaMemcpyPeer`) | Memory sharing |
+|---|---|---|
+| Copy 2060 -> V100 | 2.27 GB/s | **2.91 GB/s** |
+| Copy V100 -> 2060 | 2.51 GB/s | **3.28 GB/s** |
+| Both ways at once (writes) | | **5.62 GB/s** (2.73 + 2.89) |
+| A 4-byte copy, 2060 -> V100 / V100 -> 2060 | 19.9 / 21.5 µs | **2.15 / 3.19 µs** |
+| Reads of the other card's memory | | 1.15 / 1.63 GB/s |
+
+Soak, 20 runs at 1 GiB, one direction at a time: 20/20 `ALL OK`, 0 wrong words, nothing in the kernel log. Medians:
+writes 2.91 / 3.28 GB/s, reads 1.15 / 1.61 GB/s, 4-byte copy 2.15 / 3.18 µs (the V100's memory / the 2060's memory).
+Both ways at once gives the same 5.62 GB/s as with the RTX 3090: the V100's chipset slot is the ceiling for every pair.
+
 ## V6. llama.cpp: tensor-parallel with an all-reduce through shared video memory
 
 llama.cpp splits a model across cards by layers (`-sm layer`) or, since recently, tensor-parallel (`-sm tensor`):
@@ -368,7 +392,8 @@ needs neither.
 
 - A boot install of the changed `nvidia-drm`.
 - Other GPU pairs on a board that carries peer traffic: any two NVIDIA GPUs with Vulkan on driver 580 should behave the
-  same. Data crossed between two V100s and between a V100 and an RTX 3090; two P106-090s (Pascal) imported each
+  same. Data crossed between two V100s, a V100 and an RTX 3090, and a V100 and an RTX 2060; two P106-090s (Pascal)
+  imported each
   other's memory, but on a board that carried nothing.
 
 ## Credits
