@@ -35,3 +35,9 @@
 	branch = 580-peer-vidmem-dmabuf
 	shallow = true
 	ignore = dirty
+[submodule "tools/open-gpu-kernel-modules-615"]
+	path = tools/open-gpu-kernel-modules-615
+	url = https://github.com/Cinderella-Man/open-gpu-kernel-modules.git
+	branch = 615-peer-vidmem-dmabuf
+	shallow = true
+	ignore = dirty

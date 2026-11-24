@@ -6,6 +6,7 @@ tools/p2p_patterns
 tools/p2p_iomem
 tools/p2p_dmabuf
 tools/staged_baseline
+tools/keep_busy
 tools/p2pBandwidthLatencyTest
 tools/turing/libchipid-shim.so
 

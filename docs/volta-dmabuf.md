@@ -55,7 +55,8 @@ work for Volta on the CPU, and NVIDIA never published the Volta power-management
 stay at the card's start-up clocks. NVIDIA's CUDA library also dropped Volta after branch 580. Not realistic.
 
 NVIDIA's closed 580 driver runs both cards. Its core is a binary, but two parts of it are source: the interface layer
-of `nvidia.ko` and the whole of `nvidia-drm`. That is enough.
+of `nvidia.ko` and the whole of `nvidia-drm`. That is enough. For cards that driver 615 supports (Turing and newer), the
+same option exists for 615, tested on an RTX 2060 + RTX 3060: [dmabuf-615.md](dmabuf-615.md).
 
 ## What the closed 580 driver does with the pair
 
@@ -416,8 +417,9 @@ needs neither.
 
 - A boot install of the changed `nvidia-drm`.
 - Other GPU pairs on a board that carries peer traffic: any two NVIDIA GPUs with Vulkan on driver 580 should behave the
-  same. Data crossed between two V100s, a V100 and an RTX 3090, a V100 and an RTX 2060, and a V100 and a GTX 1070 Ti;
-  two P106-090s (Pascal) imported each other's memory, but on a board that carried nothing.
+  same. Data crossed between two V100s, a V100 and an RTX 3090, a V100 and an RTX 2060, and a V100 and a GTX 1070 Ti
+  (and, on driver 615, an RTX 2060 and an RTX 3060: [dmabuf-615.md](dmabuf-615.md)); two P106-090s (Pascal) imported
+  each other's memory, but on a board that carried nothing.
 
 ## Credits
 
