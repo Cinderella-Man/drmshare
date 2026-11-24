@@ -306,8 +306,30 @@ On the big model tensor-parallel pays off for generation: 27.9 tokens per second
 upstream's tensor parallelism at work. The all-reduce through shared video memory adds 3.5 % on top (28.9, the fastest
 of the three for generation) and 18 % on prompts. Split by layer still reads a long prompt fastest.
 
+## On a board that does not carry peer traffic
+
+The change removes NVIDIA's software refusals, not the hardware's: the data still travels from one card to the other
+over PCIe, and the board has to route it. Tested on the P106-090 mining board from
+[pascal-and-volta.md](pascal-and-volta.md#the-test-on-a-mining-box-the-driver-said-yes-the-hardware-said-no): Celeron
+3865U (Intel Sunrise Point-LP chipset), nine P106-090 behind two ASMedia ASM1184e switches, IOMMU translated, the same
+driver 580.178.04, with `nvidia-drm` built from [V2](#v2-build-nvidia-drm-with-the-option)'s steps. Writes only
+(`NO_READ=1`), 64 MiB, both directions:
+
+| Path between the two cards | Import | Words that arrived |
+|---|---|---|
+| Same ASM1184e switch | works | **0 of 16,777,216** |
+| Two different switches | works | **0 of 16,777,216** |
+| Chipset root port and a card behind a switch | works | **0 of 16,777,216** |
+
+The software side works on Pascal too: the stock module refused the import, the changed one accepted it. Then the copy
+engine "finished" (0.21 GB/s) and nothing arrived, on every path, with nothing in the kernel log: no IOMMU fault, no
+PCIe error, no GPU error. So run [V4](#v4-test-each-card-writes-and-reads-the-others-memory)'s test, which checks every
+word, on every new board before trusting it. What is known per board: [boards.md](boards.md).
+
 ## Limits
 
+- **Needs a board that carries peer traffic**, like CUDA P2P. On a mining board with PCIe switches nothing arrived,
+  and nothing said so ([above](#on-a-board-that-does-not-carry-peer-traffic)).
 - **Vulkan only.** CUDA on the closed 580 driver cannot import a dma-buf, and memory Vulkan imported this way cannot
   be handed on to CUDA. NCCL, PyTorch and vLLM do not see this route.
 - **Loaded by hand.** `nvidia-drm` with the option is not installed; a reboot returns to the stock module. A boot install
@@ -344,8 +366,10 @@ needs neither.
 
 ## Not tested yet
 
-- A boot install of the changed `nvidia-drm`, and other GPU pairs (any two NVIDIA GPUs with Vulkan on driver 580 should
-  behave the same; only this pair and two V100s were run).
+- A boot install of the changed `nvidia-drm`.
+- Other GPU pairs on a board that carries peer traffic: any two NVIDIA GPUs with Vulkan on driver 580 should behave the
+  same. Data crossed between two V100s and between a V100 and an RTX 3090; two P106-090s (Pascal) imported each
+  other's memory, but on a board that carried nothing.
 
 ## Credits
 
