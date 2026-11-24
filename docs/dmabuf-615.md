@@ -19,8 +19,9 @@ This is **not CUDA P2P**: only Vulkan programs can use it, and CUDA, NCCL, PyTor
 The same speeds as [route 2 of mixed-generations.md](mixed-generations.md) (writes through the other card's memory
 window with this guide's patched driver, 2.93 / 3.28 GB/s): the same PCIe path, here on NVIDIA's stock driver.
 
-**Experimental.** Verified on 2026-11-24 on one pair and one driver version (Ubuntu's 615.71.09 open packages). The
-changed module is loaded by hand and gone after a reboot.
+**Experimental.** Verified on 2026-11-24 on one pair (Ubuntu's 615.71.09 open packages; the same pair also on 595,
+see [dmabuf-drivers.md](dmabuf-drivers.md) for every driver version). The changed module is loaded by hand and gone
+after a reboot.
 
 ## What changed from the 580 version
 

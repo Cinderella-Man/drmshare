@@ -56,7 +56,8 @@ stay at the card's start-up clocks. NVIDIA's CUDA library also dropped Volta aft
 
 NVIDIA's closed 580 driver runs both cards. Its core is a binary, but two parts of it are source: the interface layer
 of `nvidia.ko` and the whole of `nvidia-drm`. That is enough. For cards that driver 615 supports (Turing and newer), the
-same option exists for 615, tested on an RTX 2060 + RTX 3060: [dmabuf-615.md](dmabuf-615.md).
+same option exists for 615, tested on an RTX 2060 + RTX 3060: [dmabuf-615.md](dmabuf-615.md). Every driver version
+tested, in one table: [dmabuf-drivers.md](dmabuf-drivers.md).
 
 ## What the closed 580 driver does with the pair
 
