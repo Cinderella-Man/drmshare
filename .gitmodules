@@ -23,3 +23,15 @@
 	url = https://github.com/aikitoria/open-gpu-kernel-modules.git
 	shallow = true
 	ignore = dirty
+[submodule "tools/llama.cpp"]
+	path = tools/llama.cpp
+	url = https://github.com/Cinderella-Man/miner-llama.git
+	branch = vk-allreduce-shared-vram
+	shallow = true
+	ignore = dirty
+[submodule "tools/open-gpu-kernel-modules-580"]
+	path = tools/open-gpu-kernel-modules-580
+	url = https://github.com/Cinderella-Man/open-gpu-kernel-modules.git
+	branch = 580-peer-vidmem-dmabuf
+	shallow = true
+	ignore = dirty
