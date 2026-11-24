@@ -18,3 +18,8 @@
 	url = https://github.com/NVIDIA/nccl.git
 	shallow = true
 	ignore = dirty
+[submodule "tools/aikitoria-open-gpu-kernel-modules"]
+	path = tools/aikitoria-open-gpu-kernel-modules
+	url = https://github.com/aikitoria/open-gpu-kernel-modules.git
+	shallow = true
+	ignore = dirty
