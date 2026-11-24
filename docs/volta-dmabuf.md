@@ -260,6 +260,30 @@ Soak, 20 runs at 1 GiB, one direction at a time: 20/20 `ALL OK`, 0 wrong words, 
 writes 2.91 / 3.28 GB/s, reads 1.15 / 1.61 GB/s, 4-byte copy 2.15 / 3.18 µs (the V100's memory / the 2060's memory).
 Both ways at once gives the same 5.62 GB/s as with the RTX 3090: the V100's chipset slot is the ceiling for every pair.
 
+### V100 + GTX 1070 Ti (Volta + Pascal)
+
+Same test rig and steps, the RTX 2060 swapped for a GTX 1070 Ti (GP104) in the CPU slot. Stock `nvidia-drm` refuses the
+import (`no common memory type`), the changed one allows it.
+
+The 1070 Ti's memory window stays at 256 MB (this guide's resize step is for Turing cards), so the buffers it shares stop
+at 224 MiB: at 256 and 512 MiB `nvidia-drm` logs `Failed to map NvKmsKapiMemory` and the import is refused. No crash, no
+wrong data. The V100's own buffers have no such limit: the 1070 Ti copies into 1 GiB of the V100's memory.
+
+| | Through system memory (CUDA's `cudaMemcpyPeer`) | Memory sharing |
+|---|---|---|
+| Copy 1070 Ti -> V100 (1 GiB) | 2.82 GB/s | **2.96 GB/s** |
+| Copy V100 -> 1070 Ti (192 MiB) | 3.22 GB/s | **3.28 GB/s** |
+| Both ways at once (writes, 192 MiB x 100 each, three rounds) | | **5.63 GB/s** (2.75 + 2.88) |
+| A 4-byte copy, 1070 Ti -> V100 / V100 -> 1070 Ti | 18.4 / 20.4 µs | **1.51 / 2.17 µs** |
+| Reads of the other card's memory | | 1.18 / 2.84 GB/s |
+
+Soak, 20 runs, one direction at a time (1 GiB of the V100's memory, 192 MiB of the 1070 Ti's): 20/20 `ALL OK`, 0 wrong
+words, nothing new in the kernel log. Medians: writes 2.96 / 3.28 GB/s, reads 1.18 / 2.83 GB/s, 4-byte copy
+1.51 / 2.17 µs (the V100's memory / the 1070 Ti's memory).
+
+With this card, CUDA's copy through system memory is almost as fast for big copies; what the memory sharing adds is the
+small copy (9-12 times shorter) and the same 5.6 GB/s both ways as with the other two cards.
+
 ## V6. llama.cpp: tensor-parallel with an all-reduce through shared video memory
 
 llama.cpp splits a model across cards by layers (`-sm layer`) or, since recently, tensor-parallel (`-sm tensor`):
@@ -392,9 +416,8 @@ needs neither.
 
 - A boot install of the changed `nvidia-drm`.
 - Other GPU pairs on a board that carries peer traffic: any two NVIDIA GPUs with Vulkan on driver 580 should behave the
-  same. Data crossed between two V100s, a V100 and an RTX 3090, and a V100 and an RTX 2060; two P106-090s (Pascal)
-  imported each
-  other's memory, but on a board that carried nothing.
+  same. Data crossed between two V100s, a V100 and an RTX 3090, a V100 and an RTX 2060, and a V100 and a GTX 1070 Ti;
+  two P106-090s (Pascal) imported each other's memory, but on a board that carried nothing.
 
 ## Credits
 
