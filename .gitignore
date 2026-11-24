@@ -2,5 +2,10 @@
 tools/p2p_access
 tools/p2p_bandwidth
 tools/pcie_bandwidth
+tools/p2p_patterns
 tools/p2pBandwidthLatencyTest
 tools/turing/libchipid-shim.so
+
+# vLLM benchmark: local runs (logs hold the hostname; traces are large)
+benchmarks/vllm/results/local/
+__pycache__/
