@@ -1,7 +1,7 @@
-# Memory sharing on each NVIDIA driver version
+# Hidden GEM on each NVIDIA driver version
 
 Where the memory sharing of [volta-dmabuf.md](volta-dmabuf.md) and [dmabuf-615.md](dmabuf-615.md) was tested, branch by
-branch, and which version of the `nvidia-drm` change each driver takes. The same idea everywhere: one opt-in option in
+branch, and which version of the `nvidia-drm` change (**Hidden GEM**) each driver takes. The same idea everywhere: one opt-in option in
 `nvidia-drm` lets Vulkan on one card import another card's video memory through a dma-buf. Not CUDA P2P: Vulkan
 programs only ([what this is, and what it is not](volta-dmabuf.md#what-this-is-and-what-it-is-not)).
 

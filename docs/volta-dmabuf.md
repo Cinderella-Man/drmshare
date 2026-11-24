@@ -4,7 +4,8 @@ A Tesla V100 cannot run on this guide's patched driver, and NVIDIA's own driver 
 card (`nvidia-smi topo -p2p` says `NS`). This page shares video memory between the two cards instead: one GPU's memory
 is imported into the other through a Linux dma-buf, and each card copies straight into the other's memory. It runs on
 NVIDIA's own closed 580 driver without touching any NVIDIA binary: one opt-in option in `nvidia-drm` (which NVIDIA
-ships as source) does it. This is not CUDA P2P; [the next section](#what-this-is-and-what-it-is-not) spells out the
+ships as source) does it. The guide calls that change **Hidden GEM**: the buffers it shares are `nvidia-drm`'s GEM
+objects, and the ability was already there, hidden in NVIDIA's own open-source code. This is not CUDA P2P; [the next section](#what-this-is-and-what-it-is-not) spells out the
 difference.
 
 | | Through host RAM (CUDA today) | **dma-buf route** | Real CUDA P2P, RTX 3090 pair ([benchmarks.md](benchmarks.md)) |

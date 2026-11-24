@@ -1,9 +1,9 @@
 # Memory sharing on driver 615: an RTX 2060 and an RTX 3060, experimental
 
 The memory sharing of [volta-dmabuf.md](volta-dmabuf.md) also works on this guide's driver 615, for the cards that driver
-supports (Turing and newer). One opt-in option in `nvidia-drm`, built from Ubuntu's own copy of the driver source, lets
-Vulkan on one card import the other card's video memory through a Linux dma-buf, and each card copies straight into the
-other's memory. Tested on an RTX 2060 + RTX 3060, a pair CUDA refuses because the two cards are of different
+supports (Turing and newer). One opt-in option in `nvidia-drm` (**Hidden GEM**), built from Ubuntu's own copy of the
+driver source, lets Vulkan on one card import the other card's video memory through a Linux dma-buf, and each card
+copies straight into the other's memory. Tested on an RTX 2060 + RTX 3060, a pair CUDA refuses because the two cards are of different
 generations. No patched driver and no patched `libcuda` are involved.
 
 This is **not CUDA P2P**: only Vulkan programs can use it, and CUDA, NCCL, PyTorch and vLLM still see no peer access
