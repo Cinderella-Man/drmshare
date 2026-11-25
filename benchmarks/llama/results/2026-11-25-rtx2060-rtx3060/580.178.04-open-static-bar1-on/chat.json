@@ -1,0 +1,15 @@
+{
+ "model": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+ "answer": "When a model is partitioned across multiple devices, the output activations of one layer on the first GPU become the necessary input for the corresponding layer on the second GPU. Since these intermediate tensors are not stored locally on the second device, they must be transmitted over the interconnect to ensure the computation can proceed sequentially. Without this data exchange after each layer, the second GPU would lack the specific numerical values required to perform its assigned calculations.",
+ "timings": {
+  "cache_n": 0,
+  "prompt_n": 35,
+  "prompt_ms": 32944.957,
+  "prompt_per_token_ms": 941.2844857142858,
+  "prompt_per_second": 1.0623780750419556,
+  "predicted_n": 87,
+  "predicted_ms": 9088.009,
+  "predicted_per_token_ms": 105.67452325581395,
+  "predicted_per_second": 9.463018797626631
+ }
+}

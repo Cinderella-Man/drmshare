@@ -1,0 +1,2 @@
+  Vulkan0: NVIDIA GeForce RTX 2060 (6144 MiB, 5735 MiB free)
+  Vulkan1: NVIDIA GeForce RTX 3060 (12288 MiB, 11910 MiB free)

@@ -1,0 +1,8 @@
+load_tensors:   CPU_Mapped model buffer size =   521.00 MiB
+load_tensors:       Meta() model buffer size =  7821.34 MiB
+ggml_vulkan: all-reduce writes straight into peer VRAM (dma-buf P2P)
+llama_kv_cache:     Meta() KV buffer size =    80.00 MiB
+ggml_vulkan: P2P all-reduce: 0 MiB receive buffer in each device's VRAM
+perplexity: calculating perplexity over 8 chunks, n_ctx=512, batch_size=2048, n_seq=4
+ggml_vulkan: P2P all-reduce: 40 MiB receive buffer in each device's VRAM
+Final estimate: PPL = 6.1281 +/- 0.33467

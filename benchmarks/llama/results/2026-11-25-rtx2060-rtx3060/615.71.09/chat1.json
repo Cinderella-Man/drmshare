@@ -1,0 +1,15 @@
+{
+ "model": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+ "answer": "A standard transformer model processes data through a sequential stack of layers, where the output of one layer serves as the direct input for the next. When the model's layers are partitioned across two separate GPUs, the physical boundary between these layers forces the intermediate activation tensors to be transferred via the interconnect rather than staying in local memory. This mandatory communication ensures that the second GPU has the precise, up-to-date data required to compute the subsequent layers accurately.",
+ "timings": {
+  "cache_n": 0,
+  "prompt_n": 35,
+  "prompt_ms": 37234.298,
+  "prompt_per_token_ms": 1063.8370857142859,
+  "prompt_per_second": 0.9399935511071001,
+  "predicted_n": 91,
+  "predicted_ms": 9151.732,
+  "predicted_per_token_ms": 101.68591111111111,
+  "predicted_per_second": 9.834204061045494
+ }
+}

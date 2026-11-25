@@ -9,7 +9,7 @@ programs only ([what this is, and what it is not](volta-dmabuf.md#what-this-is-a
 
 | Branch | On Ubuntu 26.04 | Change to use | Tested here |
 |---|---|---|---|
-| 580 | `nvidia-driver-580` (closed) and `nvidia-driver-580-open`, 580.178.04 | 580 version: branch `580-peer-vidmem-dmabuf` ([`9904ca0`](https://github.com/Cinderella-Man/open-gpu-kernel-modules/commit/9904ca03caa2d1e133715fd902e503961d000eaa)) | **works** (closed package): Tesla V100 with an RTX 3090, an RTX 2060 and a GTX 1070 Ti; two V100s. Open modules: not run yet |
+| 580 | `nvidia-driver-580` (closed) and `nvidia-driver-580-open`, 580.178.04 | 580 version: branch `580-peer-vidmem-dmabuf` ([`9904ca0`](https://github.com/Cinderella-Man/open-gpu-kernel-modules/commit/9904ca03caa2d1e133715fd902e503961d000eaa)) | **works**: closed package with a Tesla V100 and an RTX 3090, an RTX 2060 or a GTX 1070 Ti, and two V100s; open modules (`nvidia-driver-580-open`) with an RTX 2060 + RTX 3060 |
 | 590 | none: Ubuntu's 590 packages install 595; NVIDIA's `.run` 590.48.01 | 580 version (590 has no GC6 guard either) | source only: the change applies |
 | 595 | `nvidia-driver-595-open`, 595.99.02 | 615 version: branch `615-peer-vidmem-dmabuf` ([`9616483`](https://github.com/Cinderella-Man/open-gpu-kernel-modules/commit/9616483fb515ed5ec93c7499fdda9d5e882c747f)) | **works**: RTX 2060 + RTX 3060 |
 | 610 | none: Ubuntu's 610 packages install 615; NVIDIA's `.run` and apt repository, 610.57.04 | 615 version | source only: the change applies |
@@ -28,7 +28,7 @@ decide which version to use:
 - **When the change calls into the driver.** The 580 version maps a buffer's memory window when the importing GPU
   first maps it. On 615 that moment can fall inside the driver's own import, under its API lock, and the nested call
   was refused (lock assertions in the kernel log, then a working fallback). The 615 version does it when the buffer is
-  exported. On 580's closed package no test logged a lock assertion or a failed import.
+  exported. On 580, closed package and open modules alike, no test logged a lock assertion or a failed import.
 
 ## Results
 
@@ -41,6 +41,7 @@ is CUDA's own `cudaMemcpyPeer`, which goes through host RAM for every pair here.
 | 580.178.04, closed | Tesla V100 (chipset) + RTX 2060 (CPU slot) | 2.91 / 3.28 GB/s | 5.62 GB/s | 2.15 / 3.18 µs | 2.27 / 2.51 GB/s, 19.9 / 21.5 µs | 20/20 |
 | 580.178.04, closed | Tesla V100 (chipset) + GTX 1070 Ti (CPU slot) | 2.96 / 3.28 GB/s | 5.63 GB/s | 1.51 / 2.17 µs | 2.82 / 3.22 GB/s, 18.4 / 20.4 µs | 20/20 |
 | 580.178.04, closed | two Tesla V100s (another board, PCIe 2.0 x4 chipset slot) | 1.67 / 1.63 GB/s | | | (CUDA P2P works here: 1.62 / 1.67 GB/s) | 20/20 |
+| 580.178.04, open | RTX 2060 (chipset) + RTX 3060 (CPU slot) | 2.95 / 3.18 GB/s | 5.63 GB/s | 2.09 / 2.94 µs | 2.47 / 2.79 GB/s, 13.7 / 17.8 µs | 10/10 |
 | 595.99.02, open | RTX 2060 (chipset) + RTX 3060 (CPU slot) | 2.97 / 3.28 GB/s | 5.64 GB/s | 2.19 / 3.05 µs | 2.47 / 2.78 GB/s, 13.6 / 17.5 µs | 10/10 |
 | 615.71.09, open | RTX 2060 (chipset) + RTX 3060 (CPU slot) | 2.93 / 3.28 GB/s | 5.62 GB/s | 1.59 / 2.68 µs | 2.48 / 2.77 GB/s, 13.5 / 17.8 µs | 20/20 |
 
@@ -53,6 +54,31 @@ share: a 256 MB window (GTX 1070 Ti; RTX 2060 before [turing.md](https://github.
 
 Software: Ubuntu 26.04.1, kernel 7.0.0-44, Ubuntu's driver packages (DKMS), `iommu=pt`, B550 board with a Ryzen 9
 3900X; the two V100s on Ubuntu 24.04.5, kernel 7.0.0-43, ASUS TUF GAMING B450-PLUS II with a Ryzen 7 5700X.
+
+## llama.cpp on each driver
+
+Qwen3.8-27B (UD-Q3_K_XL, 12.2 GiB) split across the RTX 2060 + RTX 3060 with llama.cpp's tensor parallel, the
+all-reduce through host RAM vs through shared video memory, 2026-11-25 ([benchmarks/llama](../benchmarks/llama/README.md)).
+Tokens per second, mean of two rounds:
+
+| Driver | Generation, host RAM / shared | Prompt 2048, host RAM / shared | Perplexity (both the same) | Driver lines in the log |
+|---|---|---|---|---|
+| 580.178.04, open | 19.16 / 19.37 (+1.1 %) | 475 / 467 (-1.5 %) | 6.1281 | 0 |
+| 595.99.02, open | 19.19 / 19.32 (+0.7 %) | 474 / 461 (-2.8 %) | 6.1309 | 0 |
+| 615.71.09, open | 18.88 / 19.01 (+0.7 %) | 483 / 466 (-3.5 %) | 6.1305 | 0 |
+
+The same answer on every driver: identical results, no meaningful speedup on this pair. Layer split generates 13.5
+tokens/s on all three. On 615 `llama-bench` sometimes crashes at exit, inside NVIDIA's Vulkan driver
+([benchmarks/llama](../benchmarks/llama/README.md#llama-bench-crashes-at-exit-on-driver-615)).
+
+All three need `RMForceStaticBar1=0` for the RTX 3060, or the kernel log fills with driver lines while the model loads
+([troubleshooting](troubleshooting.md#vulkan-the-kernel-log-fills-with-dmaallocmapping_gm107-cant-alloc-va-space)).
+**On 595 the per-card form of that key (`NVreg_RegistryDwordsPerDevice`, as in
+[procedure step 11b](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/procedure.md#11b-driver-dynamic-bar1-for-each-card-rmforcestaticbar10)) never reaches the last card
+the driver sets up**: 595 looks each card up in its device list before adding it there. 580 and 615 apply it to every
+card. On 595 give the key to all cards (`NVreg_RegistryDwords="RMForceStaticBar1=0"`). The 595 numbers above ran with
+595's `nvidia.ko` rebuilt with 615's version of that lookup (three files of `kernel-open`, not published); the same
+run without it, static BAR1 still on for the RTX 3060, gave the same speeds.
 
 ## Building for another driver version
 
@@ -79,6 +105,6 @@ Ubuntu's 595 none. Then load and test as in [dmabuf-615.md](dmabuf-615.md) D2 an
 
 ## Not tested yet
 
-- The 580 version on 580's open modules (Turing and newer cards), and on 590.
+- The 580 version on 590.
 - 610 and 620: NVIDIA's own installers, which do not carry Ubuntu's kernel 7.0 fixes.
 - Maxwell, Ada, Hopper and Blackwell cards.

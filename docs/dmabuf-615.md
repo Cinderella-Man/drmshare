@@ -19,8 +19,8 @@ This is **not CUDA P2P**: only Vulkan programs can use it, and CUDA, NCCL, PyTor
 The same speeds as [route 2 of mixed-generations.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/mixed-generations.md) (writes through the other card's memory
 window with the P2P guide's patched driver, 2.93 / 3.28 GB/s): the same PCIe path, here on NVIDIA's stock driver.
 
-**Experimental.** Verified on 2026-11-24 on one pair (Ubuntu's 615.71.09 open packages; the same pair also on 595,
-see [dmabuf-drivers.md](dmabuf-drivers.md) for every driver version). The changed module is loaded by hand and gone
+**Experimental.** Verified on 2026-11-24 on one pair (Ubuntu's 615.71.09 open packages; the same pair also on 580 and
+595, see [dmabuf-drivers.md](dmabuf-drivers.md) for every driver version), and with llama.cpp on 2026-11-25 (D4). The changed module is loaded by hand and gone
 after a reboot.
 
 ## What changed from the 580 version
@@ -139,6 +139,32 @@ nvidia-smi --query-gpu=index,pstate,pcie.link.gen.current,pcie.link.width.curren
 
 Expected: GPU 0 at `P2` and link generation 3 while the copy runs, and about 2.9 GB/s.
 
+## D4. llama.cpp: one model across both cards
+
+The changed llama.cpp of [volta-dmabuf.md V6](volta-dmabuf.md#v6-llamacpp-tensor-parallel-with-an-all-reduce-through-shared-video-memory)
+runs on this pair unchanged: with `GGML_VK_ALLREDUCE_P2P=1` its tensor-parallel mode (`-sm tensor`) adds up each
+layer's results through shared video memory instead of host RAM. Before loading a model larger than about 4 GB, give
+**both** cards `RMForceStaticBar1=0` ([procedure step 11b](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/procedure.md#11b-driver-dynamic-bar1-for-each-card-rmforcestaticbar10)):
+with static BAR1 on, the RTX 3060 lets Vulkan map only 4 GB of its 16 GB window, and the kernel log fills with driver
+lines ([troubleshooting](troubleshooting.md#vulkan-the-kernel-log-fills-with-dmaallocmapping_gm107-cant-alloc-va-space)).
+
+```bash
+GGML_VK_ALLREDUCE_P2P=1 tools/llama.cpp/build-vk/bin/llama-bench -m model.gguf -ngl 99 -sm tensor -ts 1/2 -p 512,2048 -n 128 -r 3
+```
+
+`-ts 1/2` gives the 6 GB card a third of every layer. Qwen3.8-27B UD-Q3_K_XL (12.2 GiB) on driver 615, tokens per
+second ([benchmarks/llama](../benchmarks/llama/README.md) has 580 and 595 too, and how to run it):
+
+| | Prompt, 2048 | Generation, 128 | Perplexity |
+|---|---|---|---|
+| Layer split | 618 | 13.5 | |
+| Tensor parallel, all-reduce through host RAM | 483 | 18.9 | 6.1305 |
+| Tensor parallel, all-reduce through shared video memory | 466 | 19.0 | 6.1305 |
+
+The results are identical and the speed is the same within 1-4 %: on this pair the shared all-reduce does not make the
+model faster, unlike on a V100 + RTX 3090 (+18 % on prompts). Tensor parallel itself generates 40 % faster than layer
+split.
+
 ## Results
 
 1 GiB in each direction, every word checked:
@@ -176,8 +202,6 @@ Both ways at once gives 5.62 GB/s, the same as every V100 pair on 580: the x4 ch
 
 - Ada, Hopper and Blackwell cards. 615 runs them on the same driver code, so they should behave the same.
 - This module together with the P2P guide's patched driver (it was built from and loaded with Ubuntu's stock modules).
-- llama.cpp's all-reduce through shared video memory ([volta-dmabuf.md V6](volta-dmabuf.md#v6-llamacpp-tensor-parallel-with-an-all-reduce-through-shared-video-memory))
-  on this pair; it needs only this module, so it should run unchanged.
 - A boot install.
 
 ## Undo

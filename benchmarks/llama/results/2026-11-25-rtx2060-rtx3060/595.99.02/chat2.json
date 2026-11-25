@@ -1,0 +1,15 @@
+{
+ "model": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+ "answer": "When a model is sharded across two GPUs, each device typically holds only a subset of the total parameters, meaning neither GPU possesses the complete information needed to compute a full layer independently. Therefore, after each computation step, the intermediate activations or partial results must be transferred to the other GPU to complete the necessary matrix operations. This sequential dependency forces continuous data exchange to maintain the integrity of the forward pass, as the output of one segment serves as the required input for the next.",
+ "timings": {
+  "cache_n": 31,
+  "prompt_n": 4,
+  "prompt_ms": 286.43,
+  "prompt_per_token_ms": 71.6075,
+  "prompt_per_second": 13.965017630834758,
+  "predicted_n": 96,
+  "predicted_ms": 5010.337,
+  "predicted_per_token_ms": 52.74038947368422,
+  "predicted_per_second": 18.960800441167926
+ }
+}

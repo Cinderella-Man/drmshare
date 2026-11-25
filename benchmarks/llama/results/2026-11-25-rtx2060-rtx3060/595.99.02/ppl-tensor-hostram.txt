@@ -1,0 +1,5 @@
+load_tensors:   CPU_Mapped model buffer size =   521.00 MiB
+load_tensors:       Meta() model buffer size =  7821.34 MiB
+llama_kv_cache:     Meta() KV buffer size =    80.00 MiB
+perplexity: calculating perplexity over 8 chunks, n_ctx=512, batch_size=2048, n_seq=4
+Final estimate: PPL = 6.1309 +/- 0.33472

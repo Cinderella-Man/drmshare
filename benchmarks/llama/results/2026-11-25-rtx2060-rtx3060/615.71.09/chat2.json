@@ -1,0 +1,15 @@
+{
+ "model": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+ "answer": "When a language model is partitioned across multiple devices, the output activation tensor from the final layer of one device serves directly as the input for the first layer of the next device. Consequently, the computation on the second GPU cannot proceed until the complete result from the first GPU is fully available, creating a strict sequential dependency. This necessitates a data transfer over the interconnect after every layer to maintain the correct mathematical flow of the forward pass.",
+ "timings": {
+  "cache_n": 31,
+  "prompt_n": 4,
+  "prompt_ms": 290.727,
+  "prompt_per_token_ms": 72.68175,
+  "prompt_per_second": 13.758612031218291,
+  "predicted_n": 89,
+  "predicted_ms": 4641.163,
+  "predicted_per_token_ms": 52.74048863636363,
+  "predicted_per_second": 18.960764791066378
+ }
+}

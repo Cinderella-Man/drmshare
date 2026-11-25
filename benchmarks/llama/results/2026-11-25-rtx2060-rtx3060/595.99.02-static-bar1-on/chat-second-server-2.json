@@ -1,0 +1,15 @@
+{
+ "model": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+ "answer": "Because the model's layers are distributed sequentially across different hardware, the output tensor of one layer becomes the necessary input for the next layer residing on the other device. Since each GPU holds only a portion of the model's weights and can only compute on local data, it must transfer this intermediate activation data to the peer GPU before any further processing can occur. This dependency creates a strict sequential bottleneck where computation on one device is blocked until the required data is physically moved across the interconnect.",
+ "timings": {
+  "cache_n": 31,
+  "prompt_n": 4,
+  "prompt_ms": 293.298,
+  "prompt_per_token_ms": 73.3245,
+  "prompt_per_second": 13.638006396225,
+  "predicted_n": 97,
+  "predicted_ms": 5078.884,
+  "predicted_per_token_ms": 52.90504166666667,
+  "predicted_per_second": 18.90179023580771
+ }
+}

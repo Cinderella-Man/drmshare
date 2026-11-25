@@ -1,0 +1,15 @@
+{
+ "model": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+ "answer": "When a language model is partitioned across multiple GPUs, each device holds only a subset of the model's weights and computes only a portion of the forward or backward pass. Since the output of one layer serves as the input for the subsequent layer, which may reside on a different GPU, the intermediate activations must be transferred between devices. This data exchange is required after every layer to ensure that the computational sequence remains continuous and that each GPU has the correct inputs to perform its assigned operations.",
+ "timings": {
+  "cache_n": 0,
+  "prompt_n": 35,
+  "prompt_ms": 522.487,
+  "prompt_per_token_ms": 14.928199999999999,
+  "prompt_per_second": 66.987312602993,
+  "predicted_n": 97,
+  "predicted_ms": 5087.0,
+  "predicted_per_token_ms": 52.989583333333336,
+  "predicted_per_second": 18.871633575781402
+ }
+}

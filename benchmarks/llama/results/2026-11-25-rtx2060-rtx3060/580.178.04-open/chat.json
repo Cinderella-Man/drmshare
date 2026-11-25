@@ -1,0 +1,15 @@
+{
+ "model": "Qwen3.8-27B-UD-Q3_K_XL.gguf",
+ "answer": "When a model is partitioned across multiple GPUs, each device holds only a specific subset of the model's weights, meaning the input tensor on one GPU is insufficient to compute the full output of that segment. Consequently, the intermediate activations produced by the first GPU must be transferred to the second GPU to serve as the input for the subsequent layers. This sequential dependency forces a data exchange after every layer, as the computation on the next device cannot begin until the required intermediate results are received.",
+ "timings": {
+  "cache_n": 0,
+  "prompt_n": 35,
+  "prompt_ms": 499.962,
+  "prompt_per_token_ms": 14.284628571428572,
+  "prompt_per_second": 70.00532040435074,
+  "predicted_n": 97,
+  "predicted_ms": 5044.012,
+  "predicted_per_token_ms": 52.54179166666666,
+  "predicted_per_second": 19.032468598409363
+ }
+}
