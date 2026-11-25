@@ -75,6 +75,26 @@ llama.cpp, tensor parallel, with the all-reduce through shared video memory inst
 On the RTX 2060 + RTX 3060 the shared all-reduce gives no meaningful gain; tensor parallel itself generates 42 % faster
 than layer split there ([benchmarks/llama](benchmarks/llama/README.md)).
 
+## Every pair so far
+
+The goal is for Hidden GEM to work on every pair, including those where CUDA P2P already works, so this table lists
+every pair from this repository and from the P2P guide, side by side. The `not tested` cells are the to-do list.
+
+| Cards | Generations | CUDA P2P | Hidden GEM |
+|---|---|---|---|
+| Tesla V100 + RTX 3090 | Volta + Ampere | **not possible**: the V100 needs the closed driver 580, and CUDA refuses peer access between two architectures (NVIDIA's `ForceP2P` key makes the kernel agree, CUDA still says no; a patched `libcuda` for 580 was not tried) | **works** on 580: 2.96 / 3.26 GB/s, 5.62 GB/s both ways, soak 20/20; llama.cpp Qwen3.8-27B identical, prompts +18 % ([volta-dmabuf.md](docs/volta-dmabuf.md)) |
+| Tesla V100 + RTX 2060 | Volta + Turing | **not possible**, as above | **works** on 580: 2.91 / 3.28 GB/s, soak 20/20 (with an 8 GB window on the RTX 2060; with its stock 256 MB window, buffers up to 224 MiB) |
+| Tesla V100 + GTX 1070 Ti | Volta + Pascal | **not possible**, as above | **works** on 580: 2.96 / 3.28 GB/s, soak 20/20; the 1070 Ti shares up to 224 MiB (256 MB window) |
+| Two Tesla V100s | Volta | **works** on the stock 580 with the IOMMU in passthrough ([P2P guide](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/pascal-and-volta.md)) | **works** on 580: 1.67 / 1.63 GB/s, the same as CUDA P2P in that PCIe 2.0 x4 slot |
+| RTX 2060 + RTX 3060 | Turing + Ampere | **works with workarounds**: the P2P guide's patched driver plus a patched copy of `libcuda`, or writes through the memory window as root ([P2P guide](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/mixed-generations.md)) | **works** on 580 (open modules), 595 and 615: 2.93-2.97 / 3.18-3.28 GB/s, 5.6 GB/s both ways, soaks 10/10 and 20/20; llama.cpp Qwen3.8-27B identical, same speed ([benchmarks/llama](benchmarks/llama/README.md)) |
+| Two RTX 3090s | Ampere | **works** with the patched driver 615 | not tested |
+| RTX 3080 12 GB + RTX 3080 10 GB | Ampere (one chip) | **works** with the patched driver 615 | not tested |
+| RTX 2060 + GTX 1650 SUPER | Turing (two chips) | **works** with the patched driver and a chip-ID shim for CUDA | not tested |
+| Two P106-090s, in the test rig | Pascal | **works** on the stock 580 | not tested |
+| GTX 1070 Ti + RTX 2060 | Pascal + Turing | **not possible**: two architectures, and Pascal needs 580 | not tested (the V100 works with each of them) |
+| P106-090s behind the PCIe switches of a mining board | Pascal | **does not work**: the board drops the traffic | **does not work**: nothing arrives, no error ([volta-dmabuf.md](docs/volta-dmabuf.md#on-a-board-that-does-not-carry-peer-traffic)) |
+| Maxwell, Ada, Hopper, Blackwell cards | | not tested | not tested (595 and 615 run Ada, Hopper and Blackwell on the same driver code as the cards above) |
+
 ## Contents
 
 | | |
@@ -82,9 +102,12 @@ than layer split there ([benchmarks/llama](benchmarks/llama/README.md)).
 | [docs/volta-dmabuf.md](docs/volta-dmabuf.md) | Where it started: a Tesla V100 with an RTX 3090 (also an RTX 2060 and a GTX 1070 Ti) on NVIDIA's driver 580. Why nothing else works for a V100, the change, how to build and load it, tests, the llama.cpp all-reduce (V6), a board that does not carry peer traffic. |
 | [docs/dmabuf-615.md](docs/dmabuf-615.md) | The same on Ubuntu's driver 615 for Turing and newer, tested on an RTX 2060 + RTX 3060; llama.cpp on that pair (D4). |
 | [docs/dmabuf-drivers.md](docs/dmabuf-drivers.md) | Every NVIDIA branch from 580 to 620: which version of the change it takes, what was tested, all results in one table, llama.cpp on each driver, how to build for another version. |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | The kernel log filling with `dmaAllocMapping_GM107` lines (static BAR1), and driver 595's per-card option that misses one card. |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | The kernel log filling with `dmaAllocMapping_GM107` lines (static BAR1), and driver 595's per-card option that misses one card, with a fix. |
+| [docs/test-rig-log.md](docs/test-rig-log.md) | What was run on the test rig on 2026-11-25, in order: what worked, what did not, the dead ends and false alarms, and what the tests do not show. |
 | [benchmarks/llama](benchmarks/llama/README.md) | llama.cpp tensor parallel on the RTX 2060 + RTX 3060: scripts, results on three drivers, and a crash at exit on driver 615. |
 | [tools/](tools) | `p2p_dmabuf.cpp` (the Vulkan test: share, copy both ways, check every word), `staged_baseline.cu` (CUDA through host RAM, the baseline), `keep_busy.cu` (keeps a receiving card out of its idle state), `bar1_probe.cpp` (how much host-visible video memory Vulkan can map), `p2p_iomem.cu` (the P2P guide's I/O-memory route, compared in volta-dmabuf.md); the changed `nvidia-drm` for 580 and 615 and the changed llama.cpp as pinned submodules. |
+| [scripts/](scripts) | The steps as scripts, for a test machine: `drv-test.sh` (build Hidden GEM's `nvidia-drm` for the running driver and run every test: D1-D3 in one go), `switch-driver.sh` (another Ubuntu driver branch), `run-driver.sh` (NVIDIA's `.run` installer for branches Ubuntu does not package), `reload-nvidia.sh` (reload with driver keys, without a reboot). |
+| [patches/](patches) | `595-per-device-registry-keys.diff`: 615's per-card option lookup for driver 595 ([troubleshooting](docs/troubleshooting.md)). |
 | [docs/assets](docs/assets) | Infographics: V100 + RTX 3090, and four generations on driver 580 (`make_infographic.py`). |
 
 The code lives in two forks, pinned here as submodules:

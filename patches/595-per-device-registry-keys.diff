@@ -1,0 +1,88 @@
+--- a/common/inc/nv-proto.h
++++ b/common/inc/nv-proto.h
+@@ -83,7 +83,7 @@
+ void          nvidia_modeset_probe             (const nv_linux_state_t *nvl);
+ NvBool        nv_is_uuid_in_gpu_exclusion_list (const char *);
+ 
+-NV_STATUS     nv_parse_per_device_option_string(nvidia_stack_t *sp);
++NV_STATUS     nv_parse_per_device_option_string(nvidia_stack_t *sp, nv_state_t *current_nv);
+ nv_linux_state_t * find_uuid(const NvU8 *uuid);
+ void          nv_report_error(struct pci_dev *dev, NvU32 error_number, const char *format, va_list ap);
+ void          nv_shutdown_adapter(nvidia_stack_t *, nv_state_t *, nv_linux_state_t *);
+--- a/nvidia/nv-pci.c
++++ b/nvidia/nv-pci.c
+@@ -2096,7 +2096,7 @@
+     rm_get_gpu_uuid_raw(sp, nv);
+ 
+     /* Parse and set any per-GPU registry keys specified. */
+-    nv_parse_per_device_option_string(sp);
++    nv_parse_per_device_option_string(sp, nv);
+ 
+     rm_set_rm_firmware_requested(sp, nv);
+ 
+--- a/nvidia/os-registry.c
++++ b/nvidia/os-registry.c
+@@ -176,20 +176,26 @@
+  * 3)  domain:bus:slot.func     : Complete PCI dev id string.
+  *
+  *
+- * @param[in]  sp       pointer to nvidia_stack_t struct.
++ * @param[in]  sp          pointer to nvidia_stack_t struct.
++ * @param[in]  current_nv  pointer to the currently probing GPU state.
+  *
+  * @return NV_OK if succeeds, or NV_STATUS error code otherwise.
+  */
+-NV_STATUS nv_parse_per_device_option_string(nvidia_stack_t *sp)
++NV_STATUS nv_parse_per_device_option_string(nvidia_stack_t *sp,
++                                            nv_state_t *current_nv)
+ {
+     NV_STATUS status = NV_OK;
+     char *option_string = NULL;
+     char *ptr, *token;
+     char *name, *value;
+     NvU32 data, domain, bus, slot, func;
+-    nv_linux_state_t *nvl = NULL;
+     nv_state_t *nv = NULL;
+ 
++    if (current_nv == NULL)
++    {
++        return NV_ERR_INVALID_ARGUMENT;
++    }
++
+     if (NVreg_RegistryDwordsPerDevice != NULL)
+     {
+         if ((option_string = rm_remove_spaces(NVreg_RegistryDwordsPerDevice)) == NULL)
+@@ -228,22 +234,21 @@
+                     // lets reset cached pci dev
+                     nv = NULL;
+                 }
++                else if ((current_nv->pci_info.domain == domain) &&
++                         (current_nv->pci_info.bus == bus) &&
++                         (current_nv->pci_info.slot == slot) &&
++                         (current_nv->pci_info.function == func))
++                {
++                    nv = current_nv;
++                }
+                 else
+                 {
+-                    nvl = find_pci(domain, bus, slot, func);
+                     //
+-                    // If NO GPU found corresponding to this GPU, then reset
+-                    // cached state. This helps ignore the following registry
+-                    // keys until valid PCI BDF is found in the commandline.
++                    // BDF doesn't match the currently probing GPU;
++                    // skip registry keys until next matching
++                    // pci= entry.
+                     //
+-                    if (!nvl)
+-                    {
+-                        nv = NULL;
+-                    }
+-                    else
+-                    {
+-                        nv = NV_STATE_PTR(nvl);
+-                    }
++                    nv = NULL;
+                 }
+                 continue;
+             }

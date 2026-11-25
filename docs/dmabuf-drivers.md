@@ -103,6 +103,11 @@ diff needs. Before `patch`, apply the files in `patches/` that `dkms.conf` lists
 against `uname -r` by `PATCH_MATCH[n]`), as DKMS does: on kernel 7.0, Ubuntu's 615 lists two (see dmabuf-615.md D1),
 Ubuntu's 595 none. Then load and test as in [dmabuf-615.md](dmabuf-615.md) D2 and D3.
 
+[`scripts/drv-test.sh`](../scripts/drv-test.sh) does all of it in one go for the running driver (the distribution
+patches, the diff, the build, the module swap and every test); [`scripts/switch-driver.sh`](../scripts/switch-driver.sh)
+and [`scripts/run-driver.sh`](../scripts/run-driver.sh) put another driver version in place first. That is how every
+row above was made ([test-rig log](test-rig-log.md)).
+
 ## Not tested yet
 
 - The 580 version on 590.

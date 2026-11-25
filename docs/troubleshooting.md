@@ -69,3 +69,27 @@ echo 'options nvidia NVreg_RegistryDwords="RMForceStaticBar1=0"' | sudo tee /etc
 or skip it for one program: `GGML_VK_DISABLE_HOST_VISIBLE_VIDMEM=1` makes llama.cpp use plain video memory (no lines
 in the log; its speed was not timed here).
 
+**Or fix 595's per-card option** (tested on the RTX 2060 + RTX 3060): [`patches/595-per-device-registry-keys.diff`](../patches/595-per-device-registry-keys.diff)
+puts 615's version of that lookup into 595's `nvidia.ko` (three files of the open part, `common/inc/nv-proto.h`,
+`nvidia/nv-pci.c`, `nvidia/os-registry.c`; 38 changed lines). Build it from Ubuntu's copy of the source and load it by
+hand; a reboot returns to Ubuntu's module:
+
+```bash
+cp -a /usr/src/nvidia-595.99.02 ~/nv595-reg
+cd ~/nv595-reg
+patch -p1 < ~/hidden-gem/patches/595-per-device-registry-keys.diff
+make -j"$(nproc)" SYSSRC=/lib/modules/$(uname -r)/build modules
+sudo systemctl stop gdm nvidia-persistenced
+sudo rmmod nvidia_drm nvidia_uvm nvidia_modeset nvidia
+sudo insmod nvidia.ko NVreg_RegistryDwordsPerDevice="pci=0000:04:00.0;RMForceStaticBar1=0;pci=0000:2b:00.0;RMForceStaticBar1=0;"
+sudo insmod nvidia-modeset.ko
+sudo insmod nvidia-uvm.ko
+```
+
+Put your own cards' addresses in the `pci=` groups (`lspci -D -d 10de::0300`). `insmod` does not read
+`/etc/modprobe.d`, so the keys go on its command line. Then load Hidden GEM's `nvidia-drm` as usual (if the stock one
+came back with `nvidia-modeset`, `rmmod nvidia_drm` first). Expected: `sudo tools/bar1_probe 1 1024 11` maps
+`11.00 GiB` on the RTX 3060 with `NVRM lines +0`, with only the per-card keys; giving only the 3060 a key works too,
+and a per-card `RMForceStaticBar1=1` for the first card still reaches it (2 GiB on the RTX 2060). Not published as a
+driver branch.
+

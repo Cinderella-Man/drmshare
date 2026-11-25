@@ -8,3 +8,6 @@ tools/p2p_iomem
 # llama.cpp benchmark: local runs (logs hold paths and the hostname)
 benchmarks/llama/results/local/
 __pycache__/
+
+# private working notes (drafts, posts, plans): never committed
+notes/
