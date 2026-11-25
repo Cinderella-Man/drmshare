@@ -49,7 +49,7 @@ Two problems turned up on the way, neither caused by memory sharing:
 | Memory sharing | Hidden GEM `nvidia-drm` loaded by hand: the 580 version on 580, the 615 version on 595 and 615 ([dmabuf-drivers.md](../../docs/dmabuf-drivers.md)); before each Qwen run the driver test of [dmabuf-615.md](../../docs/dmabuf-615.md) D3 passed (1 GiB each way byte-exact, both ways 5.61-5.63 GB/s, 10 x 1 GiB soak, no driver line in the kernel log) |
 | Static BAR1 | off for both cards (`RMForceStaticBar1=0`): on 580 for all cards at once (`NVreg_RegistryDwords`), on 615 per card, on 595 per card with `nvidia.ko` rebuilt with 615's version of the per-card lookup ([why](../../docs/dmabuf-drivers.md#llamacpp-on-each-driver)). The `-static-bar1-on` folders are the runs before that, with static BAR1 still on for the RTX 3060 |
 | Host | Ryzen 9 3900X, 8 GB RAM, Ubuntu 26.04.1, kernel 7.0.0-44, Ubuntu's `nvidia-driver-*-open` packages |
-| llama.cpp | `tools/llama.cpp` (upstream `0ce7f213` + the shared-memory all-reduce, `ab88444`), Vulkan build |
+| llama.cpp | `tools/llama.cpp` at `ab88444` (upstream `0ce7f213` + the shared-memory all-reduce), Vulkan build; the exit fix `4edab03` came after these runs |
 | Model | [Qwen3.8-27B UD-Q3_K_XL](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF) (12.2 GiB, sha256 `7b20f067...`), split 1:2 (`-ts 1,2`: the 2060 holds a third, the 3060 two thirds) |
 
 Why this model: with tensor parallel both cards hold their share of every layer, so the 6 GB card sets the limit. A
@@ -118,11 +118,11 @@ reference back to the device, and ggml's globals would be torn down only after N
 the first device exists, so after the driver is loaded and before the driver's own handler runs. It waits for each
 device, drops ggml's references back to it, and so destroys the pipelines and the device while the driver is still
 there (`GGML_VK_EXIT_DEBUG=1` prints each device it releases, with 1 reference left). Same test, cold cache: crashed
-in 0 of 4 runs (the two builds alternated), same speed (18.9 tokens/s generating, both). Not in the llama.cpp fork yet.
+in 0 of 4 runs (the two builds alternated), same speed (18.9 tokens/s generating, both).
 
-```bash
-git -C tools/llama.cpp apply ../../benchmarks/llama/ggml-vulkan-release-devices-at-exit.diff
-```
+It is in the llama.cpp fork as [`4edab03`](https://github.com/Cinderella-Man/miner-llama/commit/4edab03eff0937fc5d3923b8b63ec52d0baa1d24), the second commit on `vk-allreduce-shared-vram`, and `tools/llama.cpp`
+is pinned to it, so `git submodule update --init --depth 1 tools/llama.cpp` brings it. The diff here is the same
+change, for another llama.cpp tree.
 
 ## Run it
 
