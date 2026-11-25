@@ -11,7 +11,7 @@
 //
 // NVIDIA's driver refuses that registration ("overlaps with FB or GPU BAR2" in the kernel log):
 // osCheckGpuBarsOverlapAddrRange() in osmemdesc.c rejects ranges inside any GPU's BAR1, because "full-duplex P2P over
-// BAR1" can deadlock. The fork this guide uses lets it through with the registry key RMPeerIoMemBar1=1 (for a trial
+// BAR1" can deadlock. The fork the P2P guide uses lets it through with the registry key RMPeerIoMemBar1=1 (for a trial
 // load: EXTRA_NVIDIA_OPTS="NVreg_RegistryDwords=RMPeerIoMemBar1=1"); docs/mixed-generations.md has the steps.
 // It also needs root: NVIDIA's driver lets only administrators register I/O memory, unless its own key
 // PeerMappingOverride=1 opens that to every user (osCreateOsDescriptorFromIoMemory, same file). Run it with sudo.

@@ -13,7 +13,7 @@ programs only ([what this is, and what it is not](volta-dmabuf.md#what-this-is-a
 | 590 | none: Ubuntu's 590 packages install 595; NVIDIA's `.run` 590.48.01 | 580 version (590 has no GC6 guard either) | source only: the change applies |
 | 595 | `nvidia-driver-595-open`, 595.99.02 | 615 version: branch `615-peer-vidmem-dmabuf` ([`9616483`](https://github.com/Cinderella-Man/open-gpu-kernel-modules/commit/9616483fb515ed5ec93c7499fdda9d5e882c747f)) | **works**: RTX 2060 + RTX 3060 |
 | 610 | none: Ubuntu's 610 packages install 615; NVIDIA's `.run` and apt repository, 610.57.04 | 615 version | source only: the change applies |
-| 615 | `nvidia-driver-615-open`, 615.71.09 (this guide's driver) | 615 version | **works**: RTX 2060 + RTX 3060 |
+| 615 | `nvidia-driver-615-open`, 615.71.09 (the P2P guide's driver) | 615 version | **works**: RTX 2060 + RTX 3060 |
 | 620 | none; NVIDIA's apt repository (620.70.10) and `.run` (620.73.04) | 615 version | source only: the change applies |
 
 Older branch names on 26.04 (575, 570, 560, 550, 535) are transitional packages that install 580.
@@ -49,7 +49,7 @@ kernel log has no line from the driver (apart from the expected refusal of a buf
 chipset slot is the ceiling. The 4-byte copy varies between runs and buffer sizes (1.5-3.2 µs); through system memory
 it takes 13.5-21.5 µs. On the RTX 2060 + RTX 3060 one-way copies were timed with the receiving card kept busy
 ([why](dmabuf-615.md#d3-test-each-card-writes-and-reads-the-others-memory)). The memory window limits what a card can
-share: a 256 MB window (GTX 1070 Ti; RTX 2060 before [turing.md](turing.md) T1-T3) shares buffers up to 224 MiB.
+share: a 256 MB window (GTX 1070 Ti; RTX 2060 before [turing.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/turing.md) T1-T3) shares buffers up to 224 MiB.
 
 Software: Ubuntu 26.04.1, kernel 7.0.0-44, Ubuntu's driver packages (DKMS), `iommu=pt`, B550 board with a Ryzen 9
 3900X; the two V100s on Ubuntu 24.04.5, kernel 7.0.0-43, ASUS TUF GAMING B450-PLUS II with a Ryzen 7 5700X.

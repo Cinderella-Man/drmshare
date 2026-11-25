@@ -1,15 +1,10 @@
 # compiled test programs
-tools/p2p_access
-tools/p2p_bandwidth
-tools/pcie_bandwidth
-tools/p2p_patterns
-tools/p2p_iomem
 tools/p2p_dmabuf
 tools/staged_baseline
 tools/keep_busy
-tools/p2pBandwidthLatencyTest
-tools/turing/libchipid-shim.so
+tools/bar1_probe
+tools/p2p_iomem
 
-# vLLM benchmark: local runs (logs hold the hostname; traces are large)
-benchmarks/vllm/results/local/
+# llama.cpp benchmark: local runs (logs hold paths and the hostname)
+benchmarks/llama/results/local/
 __pycache__/

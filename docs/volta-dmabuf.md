@@ -1,14 +1,14 @@
 # Volta + Ampere: memory sharing between a Tesla V100 and an RTX 3090, experimental
 
-A Tesla V100 cannot run on this guide's patched driver, and NVIDIA's own driver refuses P2P between a V100 and a GeForce
+A Tesla V100 cannot run on the [P2P guide](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus)'s patched driver, and NVIDIA's own driver refuses P2P between a V100 and a GeForce
 card (`nvidia-smi topo -p2p` says `NS`). This page shares video memory between the two cards instead: one GPU's memory
 is imported into the other through a Linux dma-buf, and each card copies straight into the other's memory. It runs on
 NVIDIA's own closed 580 driver without touching any NVIDIA binary: one opt-in option in `nvidia-drm` (which NVIDIA
-ships as source) does it. The guide calls that change **Hidden GEM**: the buffers it shares are `nvidia-drm`'s GEM
+ships as source) does it. This repository calls that change **Hidden GEM**: the buffers it shares are `nvidia-drm`'s GEM
 objects, and the ability was already there, hidden in NVIDIA's own open-source code. This is not CUDA P2P; [the next section](#what-this-is-and-what-it-is-not) spells out the
 difference.
 
-| | Through host RAM (CUDA today) | **dma-buf route** | Real CUDA P2P, RTX 3090 pair ([benchmarks.md](benchmarks.md)) |
+| | Through host RAM (CUDA today) | **dma-buf route** | Real CUDA P2P, RTX 3090 pair ([benchmarks.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/benchmarks.md)) |
 |---|---|---|---|
 | Copy one way, 3090 -> V100 / V100 -> 3090 | 2.50 / 2.79 GB/s | **2.96 / 3.26 GB/s** | 2.96 / 3.27 GB/s |
 | Both ways at once (writes) | | **5.62 GB/s** | 5.52 GB/s |
@@ -34,7 +34,7 @@ writes into (or reads from) the first card's memory over PCIe, without a stop in
 - `nvidia-smi topo -p2p r` still says `NS` for the pair, and `cudaDeviceCanAccessPeer` still says 0.
 - CUDA, NCCL, PyTorch and vLLM do not see the shared memory and keep going through system RAM. Only Vulkan programs
   written for it use it: this page's test program and the changed llama.cpp in [V6](#v6-llamacpp-tensor-parallel-with-an-all-reduce-through-shared-video-memory).
-- It is not the GeForce P2P patch from the rest of this guide either: different driver (NVIDIA's closed 580), different
+- It is not the GeForce P2P patch of the P2P guide either: different driver (NVIDIA's closed 580), different
   mechanism.
 
 **Why the numbers sit next to CUDA P2P's.** Underneath, the transfer is the same kind: one GPU's DMA engine writing
@@ -45,9 +45,9 @@ comparison is all it is.
 variable `GGML_VK_ALLREDUCE_P2P`, its log lines, and the module option's description ("P2P through BAR1"). They are
 quoted exactly as they are, so you can match them; the text around them says memory sharing.
 
-## Why not the guide's driver
+## Why not the P2P guide's driver
 
-The guide's driver is built on NVIDIA's open kernel modules, which need the GSP, a processor that came with Turing.
+The P2P guide's driver is built on NVIDIA's open kernel modules, which need the GSP, a processor that came with Turing.
 NVIDIA's own README: the open modules "can be used on any Turing or later GPU". A V100 (Volta) has none, and the open
 source has no Volta chip table at all (`halmgrGetHalForGpu()` finds nothing, the probe prints "does not include the
 required GPU System Processor"). The part of the driver that drives the hardware runs as closed firmware on the GSP;
@@ -65,7 +65,7 @@ tested, in one table: [dmabuf-drivers.md](dmabuf-drivers.md).
 | Path | Stock 580 |
 |---|---|
 | `nvidia-smi topo -p2p r` / `w` | `NS` both |
-| [Route 2](mixed-generations.md#route-2-io-memory-without-cuda-peer-access) (`p2p_iomem`: register the other GPU's memory window as I/O memory) | refused, `invalid argument`. The check sits in the binary core, with no switch |
+| [Route 2](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/mixed-generations.md#route-2-io-memory-without-cuda-peer-access) (`p2p_iomem`: register the other GPU's memory window as I/O memory) | refused, `invalid argument`. The check sits in the binary core, with no switch |
 | CUDA: export GPU memory as a dma-buf | not supported (`CU_DEVICE_ATTRIBUTE_DMA_BUF_SUPPORTED` is 0; the closed package's `nv-dmabuf.c` is a stub) |
 | Vulkan: export video memory as a dma-buf | works (`VK_EXT_external_memory_dma_buf`) |
 | Vulkan: import that dma-buf on the other NVIDIA GPU | fails: no common memory type. The kernel log shows `__nv_drm_gem_nvkms_prime_dup ... Failed to import NVKMS memory to GEM object` |
@@ -103,7 +103,7 @@ address list only to importers that set it.
 
 ## Test rigs
 
-| | Two V100s | V100 + RTX 3090 (this guide's test rig) |
+| | Two V100s | V100 + RTX 3090 (the test rig) |
 |---|---|---|
 | Board, CPU | ASUS TUF GAMING B450-PLUS II, Ryzen 7 5700X | B550 board, Ryzen 9 3900X |
 | GPU in the CPU slot | Tesla V100-PCIE-32GB, PCIe 3.0 x16 | RTX 3090 (GA102), PCIe 4.0 x16, 32 GB window (Resizable BAR) |
@@ -111,14 +111,14 @@ address list only to importers that set it.
 | Memory windows | 32 GB each, from the factory | 32 GB each |
 | Software | Ubuntu 24.04.5, kernel 7.0.0-43, `nvidia-driver-580` 580.178.04 (Ubuntu's prebuilt modules), CUDA 12.9 | Ubuntu 26.04.1, kernel 7.0.0-44, `nvidia-driver-580` 580.178.04 (DKMS), Ubuntu's CUDA 12.4 |
 
-Both run `iommu=pt` ([procedure.md step 4](procedure.md#4-iommu-in-passthrough-mode)). A V100 PCIe has no fan: give
+Both run `iommu=pt` ([procedure.md step 4](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/procedure.md#4-iommu-in-passthrough-mode)). A V100 PCIe has no fan: give
 it airflow straight through its fins. It takes an 8-pin CPU (EPS) power plug, not a PCIe one.
 
 ## V1. Switch to NVIDIA's closed 580 driver
 
-Coming from this guide's driver 615: note what is installed, release the holds, remove the 615 packages, install 580
+Coming from the P2P guide's driver 615: note what is installed, release the holds, remove the 615 packages, install 580
 with its kernel source, hold it, reboot. The same switch as for Pascal
-([pascal-and-volta.md](pascal-and-volta.md#the-software-path-on-ubuntu-2604-verified)). There is also a
+([pascal-and-volta.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/pascal-and-volta.md#the-software-path-on-ubuntu-2604-verified)). There is also a
 `ForceP2P` section on that page; this route does not need it.
 
 ```bash
@@ -211,7 +211,7 @@ grep -h "copies into" $B/a.log $B/b.log
 ```
 
 Leave heavy reads in both directions at once alone: on the Turing rig that reset the machine
-([troubleshooting](troubleshooting.md#the-machine-resets-data-fabric-sync-flood)).
+([troubleshooting](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/troubleshooting.md#the-machine-resets-data-fabric-sync-flood)).
 
 For the "through host RAM" column, [`tools/staged_baseline.cu`](../tools/staged_baseline.cu) times CUDA's own
 `cudaMemcpyPeer`, which goes through host RAM for this pair. CUDA 13 cannot build for Volta, so use Ubuntu's
@@ -248,7 +248,7 @@ Same test rig, the V100 still in the chipset slot, an RTX 2060 (TU104) in the CP
 At 512 MiB its buffer no longer fits the window: `nvidia-drm` logs `Failed to map NvKmsKapiMemory` and the import is
 refused (`no common memory type`). No crash, no wrong data.
 
-**With the window enlarged to 8 GB** ([turing.md](turing.md) T1-T3: the boot-time resize after the USB-C step), 1 GiB,
+**With the window enlarged to 8 GB** ([turing.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/turing.md) T1-T3: the boot-time resize after the USB-C step), 1 GiB,
 every word checked:
 
 | | Through system memory (CUDA's `cudaMemcpyPeer`) | Memory sharing |
@@ -268,7 +268,7 @@ Both ways at once gives the same 5.62 GB/s as with the RTX 3090: the V100's chip
 Same test rig and steps, the RTX 2060 swapped for a GTX 1070 Ti (GP104) in the CPU slot. Stock `nvidia-drm` refuses the
 import (`no common memory type`), the changed one allows it.
 
-The 1070 Ti's memory window stays at 256 MB (this guide's resize step is for Turing cards), so the buffers it shares stop
+The 1070 Ti's memory window stays at 256 MB (the P2P guide's resize step is for Turing cards), so the buffers it shares stop
 at 224 MiB: at 256 and 512 MiB `nvidia-drm` logs `Failed to map NvKmsKapiMemory` and the import is refused. No crash, no
 wrong data. The V100's own buffers have no such limit: the 1070 Ti copies into 1 GiB of the V100's memory.
 
@@ -322,7 +322,7 @@ device's VRAM`. Without the variable it is upstream's host-RAM all-reduce. Note:
 RTX 3090 as `Vulkan0` and the V100 as `Vulkan1`, and the V100 has no matrix cores under Vulkan
 (`matrix cores: none`), so it is the slow card in this backend.
 
-Correctness, Qwen3-0.6B Q8_0, perplexity over 16 chunks of 512 tokens of this guide's own text:
+Correctness, Qwen3-0.6B Q8_0, perplexity over 16 chunks of 512 tokens of the P2P guide's own text:
 
 | | Perplexity |
 |---|---|
@@ -361,7 +361,7 @@ of the three for generation) and 18 % on prompts. Split by layer still reads a l
 
 The change removes NVIDIA's software refusals, not the hardware's: the data still travels from one card to the other
 over PCIe, and the board has to route it. Tested on the P106-090 mining board from
-[pascal-and-volta.md](pascal-and-volta.md#the-test-on-a-mining-box-the-driver-said-yes-the-hardware-said-no): Celeron
+[pascal-and-volta.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/pascal-and-volta.md#the-test-on-a-mining-box-the-driver-said-yes-the-hardware-said-no): Celeron
 3865U (Intel Sunrise Point-LP chipset), nine P106-090 behind two ASMedia ASM1184e switches, IOMMU translated, the same
 driver 580.178.04, with `nvidia-drm` built from [V2](#v2-build-nvidia-drm-with-the-option)'s steps. Writes only
 (`NO_READ=1`), 64 MiB, both directions:
@@ -375,7 +375,7 @@ driver 580.178.04, with `nvidia-drm` built from [V2](#v2-build-nvidia-drm-with-t
 The software side works on Pascal too: the stock module refused the import, the changed one accepted it. Then the copy
 engine "finished" (0.21 GB/s) and nothing arrived, on every path, with nothing in the kernel log: no IOMMU fault, no
 PCIe error, no GPU error. So run [V4](#v4-test-each-card-writes-and-reads-the-others-memory)'s test, which checks every
-word, on every new board before trusting it. What is known per board: [boards.md](boards.md).
+word, on every new board before trusting it. What is known per board: [boards.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/boards.md).
 
 ## Limits
 
@@ -393,13 +393,13 @@ word, on every new board before trusting it. What is known per board: [boards.md
 ## Undo
 
 - Reboot: the stock `nvidia-drm` loads again, and the crash settings of V3 are gone.
-- Back to this guide's driver 615: remove the 580 packages (`apt-mark unhold`, `apt purge`) and install the 615
-  packages again as in [procedure.md step 3](procedure.md#3-nvidia-driver-6157109-open-kernel-modules-from-the-ubuntu-archive);
+- Back to the P2P guide's driver 615: remove the 580 packages (`apt-mark unhold`, `apt purge`) and install the 615
+  packages again as in [procedure.md step 3](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/procedure.md#3-nvidia-driver-6157109-open-kernel-modules-from-the-ubuntu-archive);
   `~/nvidia-packages-before-580.txt` lists what was there.
 
 ## NVIDIA's ForceP2P key: the kernel says yes, CUDA still says no
 
-NVIDIA's driver reads a documented registry key, `ForceP2P` ([pascal-and-volta.md](pascal-and-volta.md#forcep2p-overriding-the-chipset-check)).
+NVIDIA's driver reads a documented registry key, `ForceP2P` ([pascal-and-volta.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/pascal-and-volta.md#forcep2p-overriding-the-chipset-check)).
 In 580's source (`p2p_caps.c`) it is checked before the chipset, topology and same-architecture tests. Loaded with
 `NVreg_RegistryDwords="ForceP2P=0x11"` on the V100 + RTX 3090 (read-only check, no data moved):
 
@@ -407,10 +407,10 @@ In 580's source (`p2p_caps.c`) it is checked before the chipset, topology and sa
 |---|---|---|
 | `nvidia-smi topo -p2p r` / `w` | `NS` / `NS` | **`OK` / `OK`** |
 | `nvidia-smi topo -p2p a` (atomics) | `NS` | `NS` |
-| `cudaDeviceCanAccessPeer` ([`tools/p2p_access.cu`](../tools/p2p_access.cu)), both ways | NO | **NO** |
+| `cudaDeviceCanAccessPeer` ([`tools/p2p_access.cu`](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/tools/p2p_access.cu)), both ways | NO | **NO** |
 
 The kernel driver accepts the pair, CUDA does not: `libcuda` has its own architecture check, the one that also
-stops the RTX 2060 + RTX 3060 ([mixed-generations.md](mixed-generations.md#why-cuda-says-no)). CUDA P2P for this
+stops the RTX 2060 + RTX 3060 ([mixed-generations.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/mixed-generations.md#why-cuda-says-no)). CUDA P2P for this
 pair would also need that check patched (as route 1 there does, on driver 615), and a test that forced P2P between a
 data-center card and a GeForce card actually moves data correctly. Neither was tried. The memory sharing on this page
 needs neither.

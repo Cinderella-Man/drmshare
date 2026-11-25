@@ -555,7 +555,7 @@ GENERATIONS = {
 
 if __name__ == "__main__":
     import sys
-    which = sys.argv[1:] or ["rtx30", "turing", "pascal", "mixed", "volta", "generations"]
+    which = sys.argv[1:] or ["volta", "generations"]  # the P2P guide holds the others
     for name, data, fname in [("rtx30", DATA, "infographic.html"), ("turing", TURING, "infographic-turing.html"),
                               ("pascal", PASCAL, "infographic-pascal.html"),
                               ("mixed", MIXED, "infographic-mixed.html"),

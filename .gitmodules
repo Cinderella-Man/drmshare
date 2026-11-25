@@ -1,28 +1,3 @@
-[submodule "tools/cuda-samples"]
-	path = tools/cuda-samples
-	url = https://github.com/NVIDIA/cuda-samples.git
-	shallow = true
-	ignore = dirty
-[submodule "tools/nvbandwidth"]
-	path = tools/nvbandwidth
-	url = https://github.com/NVIDIA/nvbandwidth.git
-	shallow = true
-	ignore = dirty
-[submodule "tools/nccl-tests"]
-	path = tools/nccl-tests
-	url = https://github.com/NVIDIA/nccl-tests.git
-	shallow = true
-	ignore = dirty
-[submodule "tools/nccl"]
-	path = tools/nccl
-	url = https://github.com/NVIDIA/nccl.git
-	shallow = true
-	ignore = dirty
-[submodule "tools/aikitoria-open-gpu-kernel-modules"]
-	path = tools/aikitoria-open-gpu-kernel-modules
-	url = https://github.com/aikitoria/open-gpu-kernel-modules.git
-	shallow = true
-	ignore = dirty
 [submodule "tools/llama.cpp"]
 	path = tools/llama.cpp
 	url = https://github.com/Cinderella-Man/miner-llama.git

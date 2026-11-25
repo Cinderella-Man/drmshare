@@ -1,6 +1,6 @@
 # Memory sharing on driver 615: an RTX 2060 and an RTX 3060, experimental
 
-The memory sharing of [volta-dmabuf.md](volta-dmabuf.md) also works on this guide's driver 615, for the cards that driver
+The memory sharing of [volta-dmabuf.md](volta-dmabuf.md) also works on driver 615, the driver of the [P2P guide](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus), for the cards that driver
 supports (Turing and newer). One opt-in option in `nvidia-drm` (**Hidden GEM**), built from Ubuntu's own copy of the
 driver source, lets Vulkan on one card import the other card's video memory through a Linux dma-buf, and each card
 copies straight into the other's memory. Tested on an RTX 2060 + RTX 3060, a pair CUDA refuses because the two cards are of different
@@ -16,8 +16,8 @@ This is **not CUDA P2P**: only Vulkan programs can use it, and CUDA, NCCL, PyTor
 | A small (4-byte) copy, 3060 -> 2060 / 2060 -> 3060 | 13.5 / 17.8 µs | **1.59 / 2.68 µs** |
 | Byte-exact checks | | 20 runs x 1 GiB, 0 wrong words |
 
-The same speeds as [route 2 of mixed-generations.md](mixed-generations.md) (writes through the other card's memory
-window with this guide's patched driver, 2.93 / 3.28 GB/s): the same PCIe path, here on NVIDIA's stock driver.
+The same speeds as [route 2 of mixed-generations.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/mixed-generations.md) (writes through the other card's memory
+window with the P2P guide's patched driver, 2.93 / 3.28 GB/s): the same PCIe path, here on NVIDIA's stock driver.
 
 **Experimental.** Verified on 2026-11-24 on one pair (Ubuntu's 615.71.09 open packages; the same pair also on 595,
 see [dmabuf-drivers.md](dmabuf-drivers.md) for every driver version). The changed module is loaded by hand and gone
@@ -45,13 +45,13 @@ on branch `615-peer-vidmem-dmabuf` of a fork of NVIDIA's open kernel modules, pi
 |---|---|
 | Board, CPU | B550 board, Ryzen 9 3900X |
 | GPU in the CPU slot | RTX 3060, PCIe 4.0 x16, 16 GB window (Resizable BAR) |
-| GPU in the chipset slot | RTX 2060, PCIe 3.0 x4, 8 GB window ([turing.md](turing.md) T1-T3) |
+| GPU in the chipset slot | RTX 2060, PCIe 3.0 x4, 8 GB window ([turing.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/turing.md) T1-T3) |
 | Software | Ubuntu 26.04.1, kernel 7.0.0-44, `nvidia-driver-615-open` 615.71.09 (Ubuntu's packages, DKMS), `iommu=pt`, Ubuntu's CUDA 12.4 for the baseline |
 
 ## D1. Build nvidia-drm with the option
 
-Needs Ubuntu's 615 open packages from [procedure.md step 3](procedure.md#3-nvidia-driver-6157109-open-kernel-modules-from-the-ubuntu-archive),
-which put the driver source in `/usr/src/nvidia-615.71.09`. This guide's patched driver is not needed.
+Needs Ubuntu's 615 open packages from [procedure.md step 3](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/procedure.md#3-nvidia-driver-6157109-open-kernel-modules-from-the-ubuntu-archive),
+which put the driver source in `/usr/src/nvidia-615.71.09`. The P2P guide's patched driver is not needed.
 
 Take a copy of that source, apply the build fixes Ubuntu's DKMS applies for your kernel, and put the three changed
 files in. DKMS lists the fixes in `dkms.conf` (`PATCH[n]`, each with the kernels it is for in `PATCH_MATCH[n]`); a copy
@@ -163,11 +163,11 @@ Both ways at once gives 5.62 GB/s, the same as every V100 pair on 580: the x4 ch
   and nothing said so ([volta-dmabuf.md](volta-dmabuf.md#on-a-board-that-does-not-carry-peer-traffic)).
 - **Vulkan only.** CUDA, NCCL, PyTorch and vLLM do not see this route.
 - **A card shares only what fits its memory window.** A Turing card's stock 256 MB window shares buffers up to
-  224 MiB (measured on 580 with an RTX 2060); [turing.md](turing.md) T1-T3 enlarge it. RTX 30 cards and newer usually
+  224 MiB (measured on 580 with an RTX 2060); [turing.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/turing.md) T1-T3 enlarge it. RTX 30 cards and newer usually
   show all their memory with Resizable BAR on.
 - **An idle receiving card in a narrow slot is slow** (above). Under a real load it is not.
 - **Write across, do not read across** in bulk: reads of the other card's memory are slower, and heavy reads in both
-  directions at once reset the Turing rig ([troubleshooting](troubleshooting.md#the-machine-resets-data-fabric-sync-flood)).
+  directions at once reset the Turing rig ([troubleshooting](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/troubleshooting.md#the-machine-resets-data-fabric-sync-flood)).
 - **Loaded by hand,** with the display manager stopped. A boot install was not tested.
 - **Not on Grace systems** (GH200, GB200): 615 itself refuses to map video memory there unless the buffer is
   physically contiguous.
@@ -175,7 +175,7 @@ Both ways at once gives 5.62 GB/s, the same as every V100 pair on 580: the x4 ch
 ## Not tested yet
 
 - Ada, Hopper and Blackwell cards. 615 runs them on the same driver code, so they should behave the same.
-- This module together with this guide's patched driver (it was built from and loaded with Ubuntu's stock modules).
+- This module together with the P2P guide's patched driver (it was built from and loaded with Ubuntu's stock modules).
 - llama.cpp's all-reduce through shared video memory ([volta-dmabuf.md V6](volta-dmabuf.md#v6-llamacpp-tensor-parallel-with-an-all-reduce-through-shared-video-memory))
   on this pair; it needs only this module, so it should run unchanged.
 - A boot install.
@@ -188,4 +188,4 @@ Reboot: the stock `nvidia-drm` loads again, and the crash settings of D2 are gon
 
 As for [volta-dmabuf.md](volta-dmabuf.md#credits): Christian König and the amdgpu developers for the dma-buf technique,
 and NVIDIA for shipping `nvidia-drm` and the driver's kernel interface as source. The RTX 2060's 8 GB window comes from
-[noon-at-cgn/geforce-bar1-resize](https://github.com/noon-at-cgn/geforce-bar1-resize) ([turing.md](turing.md)).
+[noon-at-cgn/geforce-bar1-resize](https://github.com/noon-at-cgn/geforce-bar1-resize) ([turing.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/turing.md)).
