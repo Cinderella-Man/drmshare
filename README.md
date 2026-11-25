@@ -13,8 +13,18 @@ option is off by default.
 **This is memory sharing, not CUDA P2P.** Only Vulkan programs can use it; CUDA, NCCL, PyTorch and vLLM see no peer
 access, as before. llama.cpp can use it: with a second small change, its tensor-parallel mode adds up each layer's
 results through the shared memory ([what this is, and what it is not](docs/volta-dmabuf.md#what-this-is-and-what-it-is-not)).
-For CUDA P2P on GeForce cards, see the companion guide,
-[how-to-enable-p2p-on-nvidia-gpus](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus).
+
+**Use CUDA P2P where you can.** If your pair has a P2P route in the companion guide,
+[how-to-enable-p2p-on-nvidia-gpus](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus), use that: it works for every CUDA program (NCCL, PyTorch, vLLM).
+Hidden GEM is for the cases where P2P is not possible or does not fit:
+
+- a **Tesla V100 or a Pascal card with a card of another generation**: these cards run only on NVIDIA's closed driver
+  580 (the guide's patched driver cannot run them), and CUDA refuses peer access between two architectures;
+- **two generations of Turing or newer on NVIDIA's stock driver** (the guide's routes for them need its patched driver,
+  plus a patched copy of `libcuda` or root);
+- **programs that use Vulkan rather than CUDA**, like llama.cpp's Vulkan backend.
+
+The guide keeps the same list: [When P2P is not possible](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus#when-p2p-is-not-possible-hidden-gem).
 
 **Experimental.** Tested on two machines, three driver versions and five pairs, every word of every copy checked. The
 changed module is loaded by hand and gone after a reboot.
