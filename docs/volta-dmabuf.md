@@ -307,6 +307,8 @@ the dma-buf route, and each card writes its part straight into the other's memor
 adds locally. Same synchronisation and slot-reuse rules as upstream, so the arithmetic is identical. It needs V3's
 option. A second commit on the branch, [`4edab03`](https://github.com/Cinderella-Man/llama.cpp-drmshare/commit/4edab03eff0937fc5d3923b8b63ec52d0baa1d24) (2026-11-25), releases ggml-vulkan's devices at exit, which
 avoids a crash at exit on driver 615 ([benchmarks/llama](../benchmarks/llama/README.md#llama-bench-crashes-at-exit-on-driver-615)).
+Four later commits (2026-11-26) are for llama.cpp's CUDA backend and change nothing unless their settings are on
+([nccl.md](nccl.md#faster-llamacpp-drmshares-tensor-parallel-changes)).
 
 ```bash
 sudo apt install -y glslc spirv-headers glslang-tools libvulkan-dev cmake build-essential

@@ -77,7 +77,8 @@ The library lands in `build/lib/libnccl.so.2.32.6`.
 ## 2. Build llama.cpp with NCCL
 
 Any llama.cpp with the CUDA backend's NCCL support builds against the fork as against NCCL itself (same ABI), for
-example the copy pinned here as `tools/llama.cpp`:
+example the copy pinned here as `tools/llama.cpp` ([llama.cpp-drmshare](https://github.com/Cinderella-Man/llama.cpp-drmshare),
+which also carries the tensor-parallel changes of [step 3's faster run](#faster-llamacpp-drmshares-tensor-parallel-changes)):
 
 ```bash
 cmake -S tools/llama.cpp -B tools/llama.cpp/build-cuda -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DGGML_CUDA_NCCL=ON \
@@ -102,6 +103,37 @@ tools/llama.cpp/build-cuda/bin/llama-bench -m model.gguf -ngl 99 -sm tensor -p 2
 | `NCCL_DRMSHARE_SPLIT_BYTES=<bytes>` | **two lanes**: all-reduces below go through NCCL's shared memory (about 13 µs for a small one), larger ones card to card. llama.cpp's generation makes about 128 small all-reduces per token; without the cut each pays the copy engine's 28-45 µs. Set it only together with `NCCL_DRMSHARE_TRANSPORT=1`: alone, it sends large transfers through NCCL's socket network |
 | `NCCL_DRMSHARE_ORDER` | `release` (the default): every card writes its own data into the other, each copy followed by Vulkan's release of that memory to the other device; reads nothing across; 98 % of the raw speed; passed the stale-step test below. `readback`: the first fixed version, slower (see the tables) |
 | `NCCL_DRMSHARE_NOREAD=<bus id>` | `readback` only: a card whose memory must not be read by the other card fetches its data itself. Set it for a **Tesla V100 in a chipset slot**, which can freeze when another card reads its memory ([troubleshooting](troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)); `release` never reads across anyway. The bus id from `nvidia-smi --query-gpu=name,pci.bus_id --format=csv`, any unique part of it (`04:00`) |
+
+### Faster: llama.cpp-drmshare's tensor-parallel changes
+
+The copy pinned as `tools/llama.cpp` carries four changes to llama.cpp's tensor parallelism for cards linked through
+host memory or a slow slot; they change nothing unless their settings are on, and they help with stock NCCL too (the
+P2P guide's [llama.cpp section](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus#more-speed-tensor-parallel-changes-in-a-llamacpp-copy-experimental) explains each). With the fork's
+settings above, add:
+
+```bash
+export GGML_CUDA_ALLREDUCE=split   # small all-reduces by llama.cpp's own path, large ones by NCCL
+export GGML_META_ASYNC_AR=1        # a layer's all-reduces overlap the next part of its work
+tools/llama.cpp/build-cuda/bin/llama-bench -m model.gguf -ngl 99 -sm tensor -ts 3/1 -ub 2048 -p 2048 -n 128
+```
+
+This is the run behind the 1,017-1,028 tokens/s in [Results](#results) (974-975 with stock NCCL; Qwen3.8-27B Q8_0 on
+the V100 + RTX 3090, 33.7 generating).
+
+- `-ts 3/1` gives three quarters of each layer to CUDA device 0. CUDA numbers the fastest card first, here the RTX
+  3090; llama.cpp lists the devices in that order when it starts. Split by your cards' speed: on this pair `-ts 3/1`
+  is the best for prompts and `-ts 3/2` for generation (37.4 tokens/s, Results).
+- The overlap needs batches of 1,024 tokens or more (`-ub 1024` or `-ub 2048`) and cuts each layer into two chunks of
+  tokens, so far only for the Qwen3.5 / 3.8 family (`qwen35` in llama.cpp). Other models still get the two lanes.
+
+For a server, the same settings with the split for chat (at `-ts 3/1` the RTX 3090 has no room left for a 32k context
+with this model):
+
+```bash
+tools/llama.cpp/build-cuda/bin/llama-server -m model.gguf -ngl 99 -sm tensor -ts 3/2 -ub 2048 -b 2048 -c 32768
+```
+
+llama-server's speed was not measured: the numbers on this page are llama-bench's.
 
 ## 4. Check that it is used
 
