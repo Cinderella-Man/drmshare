@@ -15,9 +15,10 @@ access, as before. llama.cpp can use it: with a second small change, its tensor-
 results through the shared memory ([what this is, and what it is not](docs/volta-dmabuf.md#what-this-is-and-what-it-is-not)).
 
 **Use CUDA P2P where you can.** If your pair has a P2P route in the companion guide,
-[how-to-enable-p2p-on-nvidia-gpus](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus), use that: it works for every CUDA program (NCCL, PyTorch, vLLM). For llama.cpp on cards that CUDA runs, its CUDA backend built with NCCL
-was faster than the Vulkan backend with memory sharing on three RTX 3090s even without P2P
-([D5](docs/dmabuf-615.md#d5-three-rtx-3090s)).
+[how-to-enable-p2p-on-nvidia-gpus](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus), use that: it works for every CUDA program (NCCL, PyTorch, vLLM). For llama.cpp, its CUDA backend built with NCCL
+was faster than the Vulkan backend with memory sharing even without P2P, on both setups where both were measured: three
+RTX 3090s ([D5](docs/dmabuf-615.md#d5-three-rtx-3090s)) and the Tesla V100 + RTX 3090, where CUDA has no peer access at
+all (719 against 412 tokens/s on prompts, [V6](docs/volta-dmabuf.md#v6-llamacpp-tensor-parallel-with-an-all-reduce-through-shared-video-memory)).
 Hidden GEM is for the cases where P2P is not possible or does not fit:
 
 - a **Tesla V100 or a Pascal card with a card of another generation**: these cards run only on NVIDIA's closed driver
@@ -91,6 +92,13 @@ host RAM over that link; with it on x16, host RAM is the better route and stock 
 On three RTX 3090s the gain shrinks with longer prompts: +40 % at 8,000 tokens, a few percent from 32,000 to 262,000
 (single runs), with the generated text identical at every length ([D5](docs/dmabuf-615.md#d5-three-rtx-3090s)).
 
+**llama.cpp's CUDA backend is faster still.** On the same V100 + RTX 3090 (the V100 in the x4 chipset slot, same day,
+the same llama.cpp commit built for CUDA 12.4 with NCCL 2.32.6), every transfer through host memory because CUDA refuses
+peer access between two architectures: 719 tokens/s on 2048-token prompts and 33.2 generating with NCCL, 647 / 34.7 with
+its built-in all-reduce, against 412 / 28.9 for the Vulkan backend with memory sharing. On three RTX 3090s the CUDA
+backend with NCCL was faster too ([D5](docs/dmabuf-615.md#d5-three-rtx-3090s)). So for llama.cpp, use the CUDA backend
+built with NCCL; memory sharing speeds up the Vulkan backend and other Vulkan programs ([V6](docs/volta-dmabuf.md#v6-llamacpp-tensor-parallel-with-an-all-reduce-through-shared-video-memory)).
+
 On the RTX 2060 + RTX 3060 the shared all-reduce gives no meaningful gain; tensor parallel itself generates 42 % faster
 than layer split there ([benchmarks/llama](benchmarks/llama/README.md)).
 
@@ -101,7 +109,7 @@ every pair from this repository and from the P2P guide, side by side. The `not t
 
 | Cards | Generations | CUDA P2P | Hidden GEM |
 |---|---|---|---|
-| Tesla V100 + RTX 3090 | Volta + Ampere | **not possible**: the V100 needs the closed driver 580, and CUDA refuses peer access between two architectures (NVIDIA's `ForceP2P` key makes the kernel agree, CUDA still says no; a patched `libcuda` for 580 was not tried) | **works** on 580: 2.96 / 3.26 GB/s, 5.62 GB/s both ways, soak 20/20; llama.cpp Qwen3.8-27B identical, prompts +19 % with the V100 in the x4 chipset slot (with it in x16, host RAM is faster) ([volta-dmabuf.md](docs/volta-dmabuf.md)); a V100 in a chipset slot can freeze when read while a program starts or stops on it ([troubleshooting](docs/troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)) |
+| Tesla V100 + RTX 3090 | Volta + Ampere | **not possible**: the V100 needs the closed driver 580, and CUDA refuses peer access between two architectures (NVIDIA's `ForceP2P` key makes the kernel agree, CUDA still says no; a patched `libcuda` for 580 was not tried) | **works** on 580: 2.96 / 3.26 GB/s, 5.62 GB/s both ways, soak 20/20; llama.cpp Qwen3.8-27B identical, prompts +19 % with the V100 in the x4 chipset slot (with it in x16, host RAM is faster), while llama.cpp's CUDA backend with NCCL, through host RAM, is faster than both (719 against 412 tokens/s) ([volta-dmabuf.md](docs/volta-dmabuf.md)); a V100 in a chipset slot can freeze when read while a program starts or stops on it ([troubleshooting](docs/troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)) |
 | Tesla V100 + RTX 2060 | Volta + Turing | **not possible**, as above | **works** on 580: 2.91 / 3.28 GB/s, soak 20/20 (with an 8 GB window on the RTX 2060; with its stock 256 MB window, buffers up to 224 MiB) |
 | Tesla V100 + GTX 1070 Ti | Volta + Pascal | **not possible**, as above | **works** on 580: 2.96 / 3.28 GB/s, soak 20/20; the 1070 Ti shares up to 224 MiB (256 MB window) |
 | Two Tesla V100s | Volta | **works** on the stock 580 with the IOMMU in passthrough ([P2P guide](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/pascal-and-volta.md)) | **works** on 580: 1.67 / 1.63 GB/s, the same as CUDA P2P in that PCIe 2.0 x4 slot |

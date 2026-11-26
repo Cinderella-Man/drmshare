@@ -372,6 +372,25 @@ costs it most, and the shared all-reduce avoids those reads. On x16 they are che
 then has to cross the 3090's x4 link, so stock llama.cpp is faster. On this board the fastest setup is the V100 on x16
 with the all-reduce through host RAM.
 
+**Against llama.cpp's CUDA backend.** The same cards in the first layout (V100 in the x4 chipset slot), the same day,
+the same model and command, two rounds with the routes alternated; the CUDA routes from the same llama.cpp commit built
+with CUDA 12.4 (CUDA 13 has no sm_70) and NCCL 2.32.6 for sm_70 + sm_86. CUDA refuses peer access between two
+architectures, so every CUDA route goes through host memory. Tokens per second:
+
+| Route | Prompts, 512 | Prompts, 2048 | Generation, 128 |
+|---|---|---|---|
+| Vulkan, all-reduce through host RAM | 347 | 347 | 27.9 |
+| Vulkan, all-reduce through shared video memory | 412 | 412 | 28.9 |
+| CUDA, generic copies through host RAM (`GGML_CUDA_ALLREDUCE=none`) | 419 | 420 | 33.1 |
+| CUDA, built-in all-reduce through pinned host RAM | 668 | 647 | **34.7** |
+| **CUDA with NCCL** (NCCL's shared host memory) | **739** | **719** | 33.2 |
+
+The CUDA backend with NCCL reads prompts 74 % faster and generates 15 % faster than the Vulkan backend with memory
+sharing, with no memory sharing and no P2P at all. For llama.cpp on this pair, use the CUDA backend built with NCCL;
+memory sharing speeds up the Vulkan backend and other Vulkan programs. Perplexity over 8 chunks: 5.9896 on both Vulkan
+routes, 5.993-5.996 on the CUDA routes, all within the ±0.33 error bar but not identical to each other; why the CUDA
+routes differ (llama.cpp's NCCL path reduces some tensors in bf16) is still to be checked.
+
 ## On a board that does not carry peer traffic
 
 The change removes NVIDIA's software refusals, not the hardware's: the data still travels from one card to the other
