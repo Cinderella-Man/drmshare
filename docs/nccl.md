@@ -1,12 +1,11 @@
 # NCCL with memory sharing: an NCCL fork for pairs CUDA cannot connect
 
-> **EXPERIMENTAL, and for llama.cpp not the fastest route.** On the Tesla V100 + RTX 3090 this fork moves large
-> all-reduces **44 % faster** than NCCL does through host RAM, and makes plain llama.cpp **16 % faster** on prompts. But
-> llama.cpp with its own tensor-parallel speed-ups on **stock NCCL** (the
-> [P2P guide's llama.cpp section](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus#llamacpp-build-it-with-nccl))
-> is faster still, and this fork on top of those speed-ups is 1-4 % slower than stock NCCL. Use this page if you move
-> large buffers between two such cards with NCCL; for llama.cpp, use stock NCCL with the speed-ups. Tested on one pair
-> for one evening; results below.
+> **EXPERIMENTAL.** On a Tesla V100 + RTX 3090, with `NCCL_DRMSHARE_ORDER=release`, this fork moves large
+> all-reduces **44 % faster** than NCCL does through host RAM and makes plain llama.cpp **29 % faster** on prompts. Most
+> of llama.cpp's gain on this pair comes from llama.cpp itself, on stock NCCL (the
+> [P2P guide's llama.cpp section](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus#llamacpp-build-it-with-nccl)):
+> on top of those changes the fork adds **5 %** (974 -> 1,017-1,028 tokens/s). The default ordering is slower and,
+> with llama.cpp's changes, slower than stock NCCL. Tested on one pair for one evening; results below.
 
 NVIDIA's NCCL moves data between GPUs for CUDA programs. Between two cards that CUDA refuses to pair, like a Tesla V100
 and an RTX 3090 (two GPU generations: no peer access), NCCL has no direct route and goes through host RAM. This page
@@ -31,19 +30,18 @@ NCCL's `all_reduce_perf`, two cards:
 The ceiling is the V100's x4 slot with both directions busy, about 2.8 GB/s. Small all-reduces go through NCCL's own
 shared memory either way (the fork's two lanes, below).
 
-llama.cpp, Qwen3.8-27B Q8_0, `-sm tensor`, tokens per second (default ordering):
+llama.cpp, Qwen3.8-27B Q8_0, `-sm tensor`, prompt 2048 tokens per second, 2 rounds each:
 
-| llama.cpp | NCCL, prompt 2048 | **fork**, prompt 2048 | generation, both |
-|---|---|---|---|
-| plain (upstream as of 2026-11-24) | 717-719 | **836 (+16 %)** | 33.2 |
-| with its tensor-parallel speed-ups, `-ts 3/1 -ub 2048` (best prompts) | 965-973 | 931-937 (-3 %) | 33.7 |
-| the same at `-ts 3/2` (best generation) | 921-927 | 909-910 (-1.6 %) | 37.4 |
-| the same at `-ts 3/2`, 8k / 32k-token prompts | 821 / 552 | 818 / 550 | 36.0 at 8k, 34.1-34.6 at 32k |
+| llama.cpp | stock NCCL | **fork, `release`** | fork, default ordering | generation, all |
+|---|---|---|---|---|
+| plain (upstream as of 2026-11-24) | 720 | **932-933 (+29 %)** | 836 (+16 %) | 33.1-33.3 |
+| with its tensor-parallel speed-ups, `-ts 3/1 -ub 2048` (best prompts) | 974-975 | **1,017-1,028 (+5 %)** | 931-937 (-3 %, older build) | 33.7-33.8 |
+| the same at `-ts 3/2` (best generation), default ordering | 921-927 | | 909-910 (-1.6 %) | 37.4 |
+| the same at `-ts 3/2`, 8k / 32k-token prompts, default ordering | 821 / 552 | | 818 / 550 | 36.0 at 8k, 34.1-34.6 at 32k |
 
 With llama.cpp's speed-ups, moving data overlaps with computing, and what counts is how little the transfer disturbs
-the GPUs, not only its speed. The fork's copy engines are fast, but its hand-offs (NCCL's kernel into a local buffer, a
-CPU thread starting the copy, a fence, a flag) cost more there than they save. `NCCL_DRMSHARE_ORDER=release` has not
-been run with llama.cpp yet.
+the GPUs as well as its speed. The default ordering's fetch-and-read-back steps cost more there than they save;
+`release` (every card writes its own data, no read across) is fast enough to come out ahead.
 
 ## What you need
 
