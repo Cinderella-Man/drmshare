@@ -165,6 +165,43 @@ The results are identical and the speed is the same within 1-4 %: on this pair t
 model faster, unlike on a V100 + RTX 3090 (+18 % on prompts). Tensor parallel itself generates 40 % faster than layer
 split.
 
+## D5. Three RTX 3090s
+
+Three RTX 3090 24 GB on another board (an AMD X570 desktop board: one card behind the chipset at PCIe 4.0 x4, two on
+CPU lanes at x8 each), Ubuntu's driver 615.71.09 with the open modules, the 615 version of the change. Each card's
+window was 32 GiB (enlarged at runtime with geforce-bar1-resize, `RMForceStaticBar1=0` per card) and the IOMMU in
+passthrough, both set for this test; the cards ran at a 250 W power cap. Every exported buffer is imported by both other
+cards, every card writes into both others at once, and llama.cpp's all-reduce runs over three devices.
+
+| Test | Result |
+|---|---|
+| Copies, 1 GiB, every word checked | 6.60 GB/s for each pair with the card behind the chipset (its x4 link), 13.1-13.2 GB/s between the two x8 cards; 4-byte copy 2.6-3.2 µs. Through host RAM (CUDA, stock driver): 4.0-4.1 GB/s, 15.5-18.8 µs |
+| All six directions at once | 10 minutes (7 TB checked), then an hour with the copy engine (42.6 TB) and 15 minutes of shader writes (6.8 TB): 0 wrong words |
+| llama.cpp, Qwen3.8-27B Q8_0, `-sm tensor -ts 1,1,1` | perplexity identical chunk for chunk; 20 greedy answers through llama-server identical token by token, also after 15 minutes of serving under load |
+| Speed, `llama-bench`, routes alternated, same binary | 2048-token prompts 835 -> 1,213 tokens/s (**+45 %**), 512: +47 %; generation the same (37.2 -> 37.0). Layer split, same binary: prompts faster still (1,483) but generation at half the speed (18.5) |
+| Reads while programs start and stop on the card being read (the case that freezes a V100 in a chipset slot, [troubleshooting](troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)) | 386 runs, with the card behind the chipset and with one on CPU lanes as the card being read: none failed |
+
+Long context, llama-server `-c 262144 -np 1`, one request per length with exactly that many prompt tokens, then 200
+tokens generated; tokens per second, one run per length and route:
+
+| Prompt tokens | Prompt, host RAM | Prompt, shared | Generation, host RAM | Generation, shared |
+|---|---|---|---|---|
+| 8,192 | 800 | 1,120 | 37.9 | 37.3 |
+| 32,768 | 478 | 524 | 38.0 | 38.5 |
+| 65,536 | 458 | 467 | 34.9 | 36.4 |
+| 131,072 | 432 | 518 | 31.9 | 34.0 |
+| 261,888 | 397 | 410 | 29.0 | 29.5 |
+
+The 200 generated tokens were identical on both routes at every length. The cards' clocks varied between runs under the
+power cap, so each figure carries about ±10 %. The gain is large at short prompts and shrinks to a few percent from
+about 32,000 tokens on: the all-reduce per step stays the same size while the attention work grows with the context.
+
+Problems: one `llama-bench` run in 41 aborted at exit with a heap corruption, not reproduced in 38 more tries (with and
+without AddressSanitizer); after a two-hour benchmark (copies, shader writes, perplexity and serving), unloading the changed module left one card's display engine hung
+until a reboot (the two earlier unloads were clean). Neither is explained. Limits of this test: about four and a half
+hours with the module loaded, one board, one model, the machine's runtime state above (not its boot state with 256 MB
+windows).
+
 ## Results
 
 1 GiB in each direction, every word checked:

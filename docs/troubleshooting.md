@@ -6,6 +6,47 @@ same as for CUDA P2P and are described in the P2P guide's
 [troubleshooting](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/troubleshooting.md)
 and [boards](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/boards.md) pages.
 
+## A Tesla V100 in a chipset slot freezes (Xid 62) while another card reads its memory
+
+Seen on driver 580 (closed) with a Tesla V100 in the chipset slot of two AMD desktop boards (B550 and B450), with an
+RTX 3090 or another V100 reading its memory through memory sharing.
+
+**Symptom:** the V100 stops answering. The kernel log shows `NVRM: Xid (PCI:...): 62` (an internal micro-controller
+halt), `nvidia-smi` hangs, and programs on the V100 hang inside the driver. The milder form: the reading card gets
+wrong data for a moment (every wrong word `0xffffffff`, or data from other places in the same buffer), and the V100
+may log `Xid 32`. The V100's memory itself stays correct: a second read straight after is right.
+
+**When:** it takes three things at once.
+
+1. The V100 sits in a slot wired through the board's chipset, not in one wired to the CPU.
+2. Another card reads the V100's memory in large pieces (1 MiB per copy or more).
+3. A program starts or stops on the V100 at that moment: a Vulkan device or CUDA context created or destroyed, or a
+   process ending, whether normally, by a crash or killed.
+
+A loop that keeps starting programs on the V100 during such reads freezes it within seconds. A single program ending
+at the wrong moment mostly gives the milder form, sometimes the freeze (7 of 20 killed programs did one or the other in
+one test).
+
+**Not affected**, tested:
+
+- writes into the V100's memory: more than 300 runs, every write checked on the V100 during program starts, ends and
+  kills. llama.cpp's all-reduce only writes into the other card, so it is not affected;
+- reads in pieces of 64 KiB or less, each copy on its own (10 runs each);
+- the same V100 in a CPU slot (160 runs on two boards);
+- RTX 3090s being read, in a CPU slot or behind a chipset (about 380 runs);
+- CUDA P2P between two V100s with one of them in the chipset slot (60 runs).
+
+**What to do:** put a V100 whose memory other cards read in a CPU slot, or only write across. After a freeze a normal
+reboot can hang in the driver's shutdown; a power cycle brings the card back whole, and so does Linux's emergency
+reboot, which skips that shutdown (`sync`, then `echo b | sudo tee /proc/sysrq-trigger`; it restarts at once, so save
+your work first).
+
+**Cause:** not proven. In the test where it was measured, the frozen V100 logged a PCIe Completion Timeout of its own:
+while it sets up or tears down a device it needs answers from host memory, and the likely explanation is that these
+queue behind the other card's read requests in the chipset's PCIe switch until the V100's micro-controller gives up.
+It happens inside NVIDIA's closed driver and the card's firmware, so the `nvidia-drm` change cannot fix it. Without
+memory sharing nothing reads the V100's memory this way: CUDA P2P on these cards did not trigger it.
+
 ## Vulkan: the kernel log fills with `dmaAllocMapping_GM107: can't alloc VA space`
 
 Seen with llama.cpp's Vulkan backend on an RTX 3060 12 GB with Resizable BAR (16 GB window) on driver 580 and 595, with

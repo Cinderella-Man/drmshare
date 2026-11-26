@@ -358,6 +358,20 @@ On the big model tensor-parallel pays off for generation: 27.9 tokens per second
 upstream's tensor parallelism at work. The all-reduce through shared video memory adds 3.5 % on top (28.9, the fastest
 of the three for generation) and 18 % on prompts. Split by layer still reads a long prompt fastest.
 
+**The slot layout decides the gain.** These runs had the V100 in the x4 chipset slot and the RTX 3090 in the x16 slot.
+Measured again on 2026-11-26 in both layouts, same binary, same day, routes alternated (`-p 512,2048 -n 128 -r 3`,
+tokens per second at 2048 / 128):
+
+| Layout | Host RAM | Shared video memory |
+|---|---|---|
+| V100 in the x4 chipset slot, RTX 3090 in x16 (as above) | 347 / 27.8 | **413 / 28.9** (+19 % / +4 %) |
+| V100 in x16, RTX 3090 in the x4 chipset slot | **474 / 30.1** | 388 / 30.2 (-18 % / 0 %) |
+
+The V100 is the slower card and sets the pace. On the x4 link, reading the other card's partial results from host RAM
+costs it most, and the shared all-reduce avoids those reads. On x16 they are cheap, while its write into the RTX 3090
+then has to cross the 3090's x4 link, so stock llama.cpp is faster. On this board the fastest setup is the V100 on x16
+with the all-reduce through host RAM.
+
 ## On a board that does not carry peer traffic
 
 The change removes NVIDIA's software refusals, not the hardware's: the data still travels from one card to the other
@@ -388,7 +402,9 @@ word, on every new board before trusting it. What is known per board: [boards.md
   was not tested.
 - **The display manager has to be stopped** to swap the module.
 - **Write across, do not read across** in bulk: reads of the other card's memory are slower and drop at large sizes,
-  and heavy reads in both directions at once reset the Turing rig.
+  and heavy reads in both directions at once reset the Turing rig. A V100 in a chipset slot can freeze when another
+  card reads its memory while a program starts or stops on it; in a CPU slot it passed every run
+  ([troubleshooting](troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)).
 - **Opt-in at two levels:** the module option and, for llama.cpp, the environment variable. Both default to off.
 
 ## Undo
