@@ -105,6 +105,15 @@ its built-in all-reduce, against 412 / 28.9 for the Vulkan backend with memory s
 backend with NCCL was faster too ([D5](docs/dmabuf-615.md#d5-three-rtx-3090s)). So for llama.cpp, use the CUDA backend
 built with NCCL; memory sharing speeds up the Vulkan backend and other Vulkan programs ([V6](docs/volta-dmabuf.md#v6-llamacpp-tensor-parallel-with-an-all-reduce-through-shared-video-memory)).
 
+Every llama.cpp route on the V100 + RTX 3090 (the V100 in the PCIe 3.0 x4 chipset slot) in one table:
+
+![Tesla V100 + RTX 3090, Qwen3.8-27B Q8_0, llama.cpp tokens/s, 2048-token prompt / generation: 1 Vulkan through host RAM 347 / 27.9; 2 Vulkan + DRMShare 412 / 28.9; 3 CUDA, llama.cpp's own all-reduce 647 / 34.7; 4 CUDA + NCCL through host RAM 720 / 33.2; 5 CUDA + the NCCL fork (DRMShare transport) 932 / 33.1; 6 CUDA + NCCL + llama.cpp-drmshare's speed-ups, -ts 3/1, 974-984 / 33.8; 7 the same with the NCCL fork 1,017-1,028 / 33.7; 8 the speed-ups at -ts 3/2 925 / 37.3](docs/assets/llama-routes-v100-3090.png)
+
+Rows 6-8 use the tensor-parallel changes in [llama.cpp-drmshare](https://github.com/Cinderella-Man/llama.cpp-drmshare)
+(described in the P2P guide's [llama.cpp section](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus#more-speed-tensor-parallel-changes-in-a-llamacpp-copy-experimental));
+rows 5 and 7 the experimental NCCL fork, whose transport goes through the shared memory ([docs/nccl.md](docs/nccl.md)).
+Row 7 is the fastest on prompts, row 8 on generation.
+
 On the RTX 2060 + RTX 3060 the shared all-reduce gives no meaningful gain; tensor parallel itself generates 42 % faster
 than layer split there ([benchmarks/llama](benchmarks/llama/README.md)).
 
@@ -142,7 +151,7 @@ every pair from this repository and from the P2P guide, side by side. The `not t
 | [tools/](tools) | `p2p_dmabuf.cpp` (the Vulkan test: share, copy both ways, check every word), `staged_baseline.cu` (CUDA through host RAM, the baseline), `keep_busy.cu` (keeps a receiving card out of its idle state), `bar1_probe.cpp` (how much host-visible video memory Vulkan can map), `p2p_iomem.cu` (the P2P guide's I/O-memory route, compared in volta-dmabuf.md), `stale_test.cu` (thousands of NCCL all-reduces back to back, every element checked: [nccl.md](docs/nccl.md)); the changed `nvidia-drm` for 580 and 615, the changed llama.cpp and the NCCL fork as pinned submodules. |
 | [scripts/](scripts) | The steps as scripts, for a test machine: `drv-test.sh` (build DRMShare's `nvidia-drm` for the running driver and run every test: D1-D3 in one go), `switch-driver.sh` (another Ubuntu driver branch), `run-driver.sh` (NVIDIA's `.run` installer for branches Ubuntu does not package), `reload-nvidia.sh` (reload with driver keys, without a reboot). |
 | [patches/](patches) | `595-per-device-registry-keys.diff`: 615's per-card option lookup for driver 595 ([troubleshooting](docs/troubleshooting.md)). |
-| [docs/assets](docs/assets) | Infographics: V100 + RTX 3090, and four generations on driver 580 (`make_infographic.py`). |
+| [docs/assets](docs/assets) | Infographics: V100 + RTX 3090, and four generations on driver 580 (`make_infographic.py`); every llama.cpp route on the V100 + RTX 3090 (`llama-routes-v100-3090.html`, the table above). |
 
 The code lives in three forks, pinned here as submodules:
 [Cinderella-Man/open-gpu-kernel-modules](https://github.com/Cinderella-Man/open-gpu-kernel-modules), branches
