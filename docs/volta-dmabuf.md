@@ -34,7 +34,9 @@ writes into (or reads from) the first card's memory over PCIe, without a stop in
 
 - `nvidia-smi topo -p2p r` still says `NS` for the pair, and `cudaDeviceCanAccessPeer` still says 0.
 - CUDA, NCCL, PyTorch and vLLM do not see the shared memory and keep going through system RAM. Only Vulkan programs
-  written for it use it: this page's test program and the changed llama.cpp in [V6](#v6-llamacpp-tensor-parallel-with-an-all-reduce-through-shared-video-memory).
+  written for it use it: this page's test program and the changed llama.cpp in [V6](#v6-llamacpp-tensor-parallel-with-an-all-reduce-through-shared-video-memory),
+  and, experimentally, CUDA programs that talk through an NCCL fork whose transport moves data with Vulkan's copy
+  engines ([nccl.md](nccl.md)).
 - It is not the GeForce P2P patch of the P2P guide either: different driver (NVIDIA's closed 580), different
   mechanism.
 

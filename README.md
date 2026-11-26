@@ -12,8 +12,9 @@ The name: the sharing comes from `nvidia-drm`, NVIDIA's part of Linux's **DRM**,
 GEM objects; the ability was already there, hidden in NVIDIA's own open-source code (hence the old name). The change
 adds 110 lines (580) or 144 lines (615) to three `nvidia-drm` files, and the option is off by default.
 
-**This is memory sharing, not CUDA P2P.** Only Vulkan programs can use it; CUDA, NCCL, PyTorch and vLLM see no peer
-access, as before. llama.cpp can use it: with a second small change, its tensor-parallel mode adds up each layer's
+**This is memory sharing, not CUDA P2P.** Vulkan programs use it directly; CUDA programs that talk through NCCL can use it
+through an experimental NCCL fork ([docs/nccl.md](docs/nccl.md)); CUDA itself, PyTorch and vLLM see no peer access, as
+before. llama.cpp can use it: with a second small change, its tensor-parallel mode adds up each layer's
 results through the shared memory ([what this is, and what it is not](docs/volta-dmabuf.md#what-this-is-and-what-it-is-not)).
 
 **Use CUDA P2P where you can.** If your pair has a P2P route in the companion guide,
@@ -43,6 +44,7 @@ stops on it ([troubleshooting](docs/troubleshooting.md#a-tesla-v100-in-a-chipset
 | Tesla V100 + a GeForce card (Volta + Ampere, Turing or Pascal), or two V100s | NVIDIA's driver 580 (the closed package: the open modules do not run Volta) | [docs/volta-dmabuf.md](docs/volta-dmabuf.md) | **works**: V100 + RTX 3090, V100 + RTX 2060, V100 + GTX 1070 Ti; two V100s |
 | Two or more cards of Turing or newer, any generations | Ubuntu's driver 615 (or 595) | [docs/dmabuf-615.md](docs/dmabuf-615.md) | **works**: RTX 2060 + RTX 3060; three RTX 3090s ([D5](docs/dmabuf-615.md#d5-three-rtx-3090s)) |
 | Another driver version (580 open modules, 590, 610, 620) | | [docs/dmabuf-drivers.md](docs/dmabuf-drivers.md) | 580 open modules **works**; 590, 610, 620: the change applies, not run |
+| NCCL between two cards CUDA cannot pair (llama.cpp's CUDA backend, other one-process NCCL programs) | 580 (V100) or 615 | [docs/nccl.md](docs/nccl.md) | **experimental**: V100 + RTX 3090; large all-reduces +44 %, but for llama.cpp stock NCCL with llama.cpp's speed-ups is faster |
 | One model across both cards with llama.cpp | any of the above | [benchmarks/llama](benchmarks/llama/README.md), [volta-dmabuf.md V6](docs/volta-dmabuf.md#v6-llamacpp-tensor-parallel-with-an-all-reduce-through-shared-video-memory) | **works**: Qwen3.8-27B on V100 + RTX 3090, on RTX 2060 + RTX 3060 and on three RTX 3090s |
 
 Four things decide whether it works on your machine:
@@ -131,19 +133,21 @@ every pair from this repository and from the P2P guide, side by side. The `not t
 | [docs/volta-dmabuf.md](docs/volta-dmabuf.md) | Where it started: a Tesla V100 with an RTX 3090 (also an RTX 2060 and a GTX 1070 Ti) on NVIDIA's driver 580. Why nothing else works for a V100, the change, how to build and load it, tests, the llama.cpp all-reduce (V6), a board that does not carry peer traffic. |
 | [docs/dmabuf-615.md](docs/dmabuf-615.md) | The same on Ubuntu's driver 615 for Turing and newer, tested on an RTX 2060 + RTX 3060; llama.cpp on that pair (D4); three RTX 3090s at once (D5). |
 | [docs/dmabuf-drivers.md](docs/dmabuf-drivers.md) | Every NVIDIA branch from 580 to 620: which version of the change it takes, what was tested, all results in one table, llama.cpp on each driver, how to build for another version. |
+| [docs/nccl.md](docs/nccl.md) | **Experimental**: an NCCL fork with a transport through the shared memory, for CUDA programs on pairs CUDA cannot connect: build, settings, checks, results on the V100 + RTX 3090, and why it is not the fastest route for llama.cpp. |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | A Tesla V100 in a chipset slot that freezes while another card reads its memory; the kernel log filling with `dmaAllocMapping_GM107` lines (static BAR1); driver 595's per-card option that misses one card, with a fix. |
 | [docs/test-rig-log.md](docs/test-rig-log.md) | What was run on the test rig on 2026-11-25, in order: what worked, what did not, the dead ends and false alarms, and what the tests do not show. |
 | [benchmarks/llama](benchmarks/llama/README.md) | llama.cpp tensor parallel on the RTX 2060 + RTX 3060: scripts, results on three drivers, and a crash at exit on driver 615. |
-| [tools/](tools) | `p2p_dmabuf.cpp` (the Vulkan test: share, copy both ways, check every word), `staged_baseline.cu` (CUDA through host RAM, the baseline), `keep_busy.cu` (keeps a receiving card out of its idle state), `bar1_probe.cpp` (how much host-visible video memory Vulkan can map), `p2p_iomem.cu` (the P2P guide's I/O-memory route, compared in volta-dmabuf.md); the changed `nvidia-drm` for 580 and 615 and the changed llama.cpp as pinned submodules. |
+| [tools/](tools) | `p2p_dmabuf.cpp` (the Vulkan test: share, copy both ways, check every word), `staged_baseline.cu` (CUDA through host RAM, the baseline), `keep_busy.cu` (keeps a receiving card out of its idle state), `bar1_probe.cpp` (how much host-visible video memory Vulkan can map), `p2p_iomem.cu` (the P2P guide's I/O-memory route, compared in volta-dmabuf.md), `stale_test.cu` (thousands of NCCL all-reduces back to back, every element checked: [nccl.md](docs/nccl.md)); the changed `nvidia-drm` for 580 and 615, the changed llama.cpp and the NCCL fork as pinned submodules. |
 | [scripts/](scripts) | The steps as scripts, for a test machine: `drv-test.sh` (build DRMShare's `nvidia-drm` for the running driver and run every test: D1-D3 in one go), `switch-driver.sh` (another Ubuntu driver branch), `run-driver.sh` (NVIDIA's `.run` installer for branches Ubuntu does not package), `reload-nvidia.sh` (reload with driver keys, without a reboot). |
 | [patches/](patches) | `595-per-device-registry-keys.diff`: 615's per-card option lookup for driver 595 ([troubleshooting](docs/troubleshooting.md)). |
 | [docs/assets](docs/assets) | Infographics: V100 + RTX 3090, and four generations on driver 580 (`make_infographic.py`). |
 
-The code lives in two forks, pinned here as submodules:
+The code lives in three forks, pinned here as submodules:
 [Cinderella-Man/open-gpu-kernel-modules](https://github.com/Cinderella-Man/open-gpu-kernel-modules), branches
 `580-peer-vidmem-dmabuf` and `615-peer-vidmem-dmabuf` (the `nvidia-drm` option `peer_vidmem_dmabuf`), and
 [Cinderella-Man/llama.cpp-drmshare](https://github.com/Cinderella-Man/llama.cpp-drmshare), branch `vk-allreduce-shared-vram` (llama.cpp
-with `GGML_VK_ALLREDUCE_P2P=1`). Code, option and log names still say P2P after the hardware path; the text says memory
+with `GGML_VK_ALLREDUCE_P2P=1`), and [Cinderella-Man/nccl-drmshare](https://github.com/Cinderella-Man/nccl-drmshare),
+branch `2.32.6-drmshare` (NCCL 2.32.6 with the transport of [docs/nccl.md](docs/nccl.md)). Code, option and log names still say P2P after the hardware path; the text says memory
 sharing.
 
 These pages started in the P2P guide and moved here on 2026-11-25, with their history.

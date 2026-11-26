@@ -16,3 +16,9 @@
 	branch = 615-peer-vidmem-dmabuf
 	shallow = true
 	ignore = dirty
+[submodule "tools/nccl-drmshare"]
+	path = tools/nccl-drmshare
+	url = https://github.com/Cinderella-Man/nccl-drmshare.git
+	branch = 2.32.6-drmshare
+	shallow = true
+	ignore = dirty
