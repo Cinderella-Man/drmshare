@@ -70,13 +70,15 @@ Copies of 1 GiB into the first card's memory / into the second card's, every wor
 
 | Driver | Cards | Memory sharing | Both ways at once | 4-byte copy | Through host RAM |
 |---|---|---|---|---|---|
-| 580, closed | Tesla V100 + RTX 3090 | **2.96 / 3.26 GB/s** | **5.62 GB/s** | **2.4 / 3.1 µs** | 2.50 / 2.79 GB/s, 17.0 / 19.5 µs |
-| 580, closed | Tesla V100 + RTX 2060 | **2.91 / 3.28 GB/s** | **5.62 GB/s** | **2.2 / 3.2 µs** | 2.27 / 2.51 GB/s, 19.9 / 21.5 µs |
-| 580, closed | Tesla V100 + GTX 1070 Ti | **2.96 / 3.28 GB/s** | **5.63 GB/s** | **1.5 / 2.2 µs** | 2.82 / 3.22 GB/s, 18.4 / 20.4 µs |
-| 580 open, 595, 615 | RTX 2060 + RTX 3060 | **2.93-2.97 / 3.18-3.28 GB/s** | **5.61-5.64 GB/s** | **1.6-2.2 / 2.7-3.1 µs** | 2.47 / 2.78 GB/s, 13.5 / 17.8 µs |
-| 615 open | RTX 3090 (PCIe 4.0 x4 chipset slot) + RTX 3090 (x8) | **6.60 / 6.60 GB/s** | **12.84 GB/s** | **3.2 / 2.6 µs** | 4.11 / 4.02 GB/s, 18.8 / 15.5 µs |
+| 580, closed | Tesla V100 (PCIe 3.0 x4 chipset slot) + RTX 3090 (PCIe 4.0 x16) | **2.96 / 3.26 GB/s** | **5.62 GB/s** | **2.4 / 3.1 µs** | 2.50 / 2.79 GB/s, 17.0 / 19.5 µs |
+| 580, closed | Tesla V100 (PCIe 3.0 x4 chipset slot) + RTX 2060 (PCIe 3.0 x16) | **2.91 / 3.28 GB/s** | **5.62 GB/s** | **2.2 / 3.2 µs** | 2.27 / 2.51 GB/s, 19.9 / 21.5 µs |
+| 580, closed | Tesla V100 (PCIe 3.0 x4 chipset slot) + GTX 1070 Ti (PCIe 3.0 x16) | **2.96 / 3.28 GB/s** | **5.63 GB/s** | **1.5 / 2.2 µs** | 2.82 / 3.22 GB/s, 18.4 / 20.4 µs |
+| 580 open, 595, 615 | RTX 2060 (PCIe 3.0 x4 chipset slot) + RTX 3060 (PCIe 4.0 x16) | **2.93-2.97 / 3.18-3.28 GB/s** | **5.61-5.64 GB/s** | **1.6-2.2 / 2.7-3.1 µs** | 2.47 / 2.78 GB/s, 13.5 / 17.8 µs |
+| 615 open | RTX 3090 (PCIe 4.0 x4 chipset slot) + RTX 3090 (PCIe 4.0 x8) | **6.60 / 6.60 GB/s** | **12.84 GB/s** | **3.2 / 2.6 µs** | 4.11 / 4.02 GB/s, 18.8 / 15.5 µs |
 
-Both ways at once is 5.6 GB/s for every pair on the first board: its x4 chipset slot is the ceiling. Two V100s on another
+**The slot sets these speeds, not the method:** a PCIe 3.0 x4 link carries about 3.3 GB/s each way at most, and every
+route between two cards, memory sharing, host RAM or CUDA P2P, is capped by the slower card's link. Both ways at once
+is 5.6 GB/s for every pair on the first board: its PCIe 3.0 x4 chipset slot is the ceiling. Two V100s on another
 board reach 1.67 / 1.63 GB/s in a PCIe 2.0 x4 slot, the same as CUDA P2P there. On a third board, the two RTX 3090s on
 x8 CPU lanes copy at 13.1-13.2 GB/s ([D5](docs/dmabuf-615.md#d5-three-rtx-3090s)).
 
@@ -84,10 +86,10 @@ llama.cpp, tensor parallel, with the all-reduce through shared video memory inst
 
 | Cards, model | Results | Prompt | Generation |
 |---|---|---|---|
-| V100 (x4 chipset slot) + RTX 3090 (x16), Qwen3.8-27B Q8_0 | identical (perplexity equal on every chunk) | **+19 %** (413 vs 347 tokens/s) | +4 % (28.9 vs 27.8) |
-| the same cards with the slots swapped: V100 (x16) + RTX 3090 (x4 chipset slot) | identical | **-18 %** (388 vs 474) | 0 % (30.2 vs 30.1) |
-| three RTX 3090s, Qwen3.8-27B Q8_0, driver 615 | identical (perplexity equal on every chunk) | **+45 %** (1213 vs 835) | the same (37.0 vs 37.2) |
-| RTX 2060 + RTX 3060, Qwen3.8-27B UD-Q3_K_XL, drivers 580 / 595 / 615 | identical on each driver | -1.5 to -3.5 % | +0.7 to +1.1 % (19.3 vs 19.2) |
+| V100 (PCIe 3.0 x4 chipset slot) + RTX 3090 (PCIe 4.0 x16), Qwen3.8-27B Q8_0 | identical (perplexity equal on every chunk) | **+19 %** (413 vs 347 tokens/s) | +4 % (28.9 vs 27.8) |
+| the same cards with the slots swapped: V100 (PCIe 3.0 x16) + RTX 3090 (PCIe 3.0 x4 chipset slot) | identical | **-18 %** (388 vs 474) | 0 % (30.2 vs 30.1) |
+| three RTX 3090s (one at PCIe 4.0 x4 behind the chipset, two at PCIe 4.0 x8), Qwen3.8-27B Q8_0, driver 615 | identical (perplexity equal on every chunk) | **+45 %** (1213 vs 835) | the same (37.0 vs 37.2) |
+| RTX 2060 (PCIe 3.0 x4 chipset slot) + RTX 3060 (PCIe 4.0 x16), Qwen3.8-27B UD-Q3_K_XL, drivers 580 / 595 / 615 | identical on each driver | -1.5 to -3.5 % | +0.7 to +1.1 % (19.3 vs 19.2) |
 
 Prompts of 2048 tokens; the two routes alternated, same binary. **On the V100 + RTX 3090 the slot layout decides.** The
 V100 is the slower card and sets the pace. With it on the narrow x4 link, the shared all-reduce saves it from reading

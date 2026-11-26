@@ -227,7 +227,8 @@ CUDA_DEVICE_ORDER=PCI_BUS_ID ./staged_baseline 0 1 64
 
 ## V5. Results
 
-V100 + RTX 3090, 64 MiB, every word checked:
+V100 + RTX 3090, 64 MiB, every word checked. The V100 sits in the B550 board's chipset slot, **PCIe 3.0 x4** (about 3.3 GB/s each way at most),
+the RTX 3090 in a CPU slot (PCIe 4.0 x16): the x4 link sets every speed below, for any route between the two cards.
 
 | | Copies into the other card | Reads from it | 4-byte copy |
 |---|---|---|---|
@@ -244,7 +245,8 @@ native CUDA P2P between the same two V100s: 1.62 / 1.67 GB/s. Both are capped by
 
 ### V100 + RTX 2060 (Volta + Turing)
 
-Same test rig, the V100 still in the chipset slot, an RTX 2060 (TU104) in the CPU slot; same driver and steps.
+Same test rig, the V100 still in the chipset slot (PCIe 3.0 x4), an RTX 2060 (TU104) in the CPU slot (PCIe 3.0 x16);
+same driver and steps.
 
 **With the 2060's stock 256 MB window**, the memory sharing works for buffers that fit in it: 64 MiB both ways byte-exact
 (writes 2.92 / 3.28 GB/s, reads 1.17 / 2.87 GB/s, a 4-byte copy in 1.15 / 2.17 µs), and the 2060 shared up to 224 MiB.
@@ -268,7 +270,8 @@ Both ways at once gives the same 5.62 GB/s as with the RTX 3090: the V100's chip
 
 ### V100 + GTX 1070 Ti (Volta + Pascal)
 
-Same test rig and steps, the RTX 2060 swapped for a GTX 1070 Ti (GP104) in the CPU slot. Stock `nvidia-drm` refuses the
+Same test rig and steps, the RTX 2060 swapped for a GTX 1070 Ti (GP104) in the CPU slot (PCIe 3.0 x16; the V100 still
+in the PCIe 3.0 x4 chipset slot). Stock `nvidia-drm` refuses the
 import (`no common memory type`), the changed one allows it.
 
 The 1070 Ti's memory window stays at 256 MB (the P2P guide's resize step is for Turing cards), so the buffers it shares stop

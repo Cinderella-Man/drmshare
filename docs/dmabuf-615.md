@@ -9,7 +9,7 @@ generations. No patched driver and no patched `libcuda` are involved.
 This is **not CUDA P2P**: only Vulkan programs can use it, and CUDA, NCCL, PyTorch and vLLM still see no peer access
 ([what this is, and what it is not](volta-dmabuf.md#what-this-is-and-what-it-is-not)).
 
-| RTX 2060 + RTX 3060, driver 615 | Through system memory (CUDA's `cudaMemcpyPeer`) | **Memory sharing** |
+| RTX 2060 (chipset slot, PCIe 3.0 x4) + RTX 3060 (PCIe 4.0 x16), driver 615 | Through system memory (CUDA's `cudaMemcpyPeer`) | **Memory sharing** |
 |---|---|---|
 | Copy 3060 -> 2060 / 2060 -> 3060 | 2.48 / 2.77 GB/s | **2.93 / 3.28 GB/s** |
 | Both ways at once (writes) | | **5.62 GB/s** |

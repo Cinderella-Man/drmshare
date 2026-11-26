@@ -1,6 +1,6 @@
 # NCCL with memory sharing: an NCCL fork for pairs CUDA cannot connect
 
-> **EXPERIMENTAL.** On a Tesla V100 + RTX 3090 this fork moves large
+> **EXPERIMENTAL.** On a Tesla V100 (in a PCIe 3.0 x4 chipset slot) + RTX 3090 (PCIe 4.0 x16) this fork moves large
 > all-reduces **44 % faster** than NCCL does through host RAM and makes plain llama.cpp **29 % faster** on prompts. Most
 > of llama.cpp's gain on this pair comes from llama.cpp itself, on stock NCCL (the
 > [P2P guide's llama.cpp section](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus#llamacpp-build-it-with-nccl)):
@@ -15,7 +15,7 @@ the fork is a drop-in `libnccl.so.2`.
 
 ## Results
 
-Tesla V100 (PCIe 3.0 x4, a slot wired through the board's chipset) + RTX 3090 (x16), NVIDIA's closed driver
+Tesla V100 (PCIe 3.0 x4, a slot wired through the board's chipset) + RTX 3090 (PCIe 4.0 x16), NVIDIA's closed driver
 580.178.04 with DRMShare's `nvidia-drm`, NCCL 2.32.6, 2026-11-26. Every NCCL result checked; every llama.cpp
 comparison with identical perplexity, chunk for chunk.
 
@@ -27,7 +27,9 @@ NCCL's `all_reduce_perf`, two cards:
 | this fork, `NCCL_DRMSHARE_ORDER=readback` | 13.0 µs | 1.52 GB/s | 1.94 GB/s | 1.94 GB/s |
 | **this fork (default ordering, `release`)** | 13.0 µs | **2.18 GB/s** | **2.60 GB/s** | **2.63 GB/s** |
 
-The ceiling is the V100's x4 slot with both directions busy, about 2.8 GB/s. Small all-reduces go through NCCL's own
+The ceiling is the V100's PCIe 3.0 x4 slot with both directions busy, about 2.8 GB/s: these numbers measure the slot as
+much as the method. Two cards in faster slots move several times more (13.1 GB/s between two RTX 3090s on PCIe 4.0 x8
+lanes, [dmabuf-615.md D5](dmabuf-615.md#d5-three-rtx-3090s)). Small all-reduces go through NCCL's own
 shared memory either way (the fork's two lanes, below).
 
 llama.cpp, Qwen3.8-27B Q8_0, `-sm tensor`, prompt 2048 tokens per second, 2 rounds each:
