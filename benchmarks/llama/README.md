@@ -120,7 +120,7 @@ device, drops ggml's references back to it, and so destroys the pipelines and th
 there (`GGML_VK_EXIT_DEBUG=1` prints each device it releases, with 1 reference left). Same test, cold cache: crashed
 in 0 of 4 runs (the two builds alternated), same speed (18.9 tokens/s generating, both).
 
-It is in the llama.cpp fork as [`4edab03`](https://github.com/Cinderella-Man/miner-llama/commit/4edab03eff0937fc5d3923b8b63ec52d0baa1d24), the second commit on `vk-allreduce-shared-vram`, and `tools/llama.cpp`
+It is in the llama.cpp copy as [`4edab03`](https://github.com/Cinderella-Man/llama.cpp-drmshare/commit/4edab03eff0937fc5d3923b8b63ec52d0baa1d24), the second commit on `vk-allreduce-shared-vram`, and `tools/llama.cpp`
 is pinned to it, so `git submodule update --init --depth 1 tools/llama.cpp` brings it. The diff here is the same
 change, for another llama.cpp tree.
 

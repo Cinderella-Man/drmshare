@@ -295,12 +295,12 @@ every layer is split across both cards, which add up their partial results (an a
 backend does that all-reduce through host RAM: each card writes its part into a buffer in system memory and the other
 reads it back over PCIe.
 
-One commit, [`ab88444`](https://github.com/Cinderella-Man/miner-llama/commit/ab884449db7e416625f001d901155aff13d14ff9), on top of upstream's `0ce7f213` (branch `vk-allreduce-shared-vram`, pinned in this
+One commit, [`ab88444`](https://github.com/Cinderella-Man/llama.cpp-drmshare/commit/ab884449db7e416625f001d901155aff13d14ff9), on top of upstream's `0ce7f213` (branch `vk-allreduce-shared-vram`, pinned in this
 repository as `tools/llama.cpp`; 233 lines in five files of `ggml/src/ggml-vulkan`), adds an opt-in
 `GGML_VK_ALLREDUCE_P2P=1`: each card's receive buffer lives in its own video memory, shared with the other card through
 the dma-buf route, and each card writes its part straight into the other's memory (one PCIe trip instead of two), then
 adds locally. Same synchronisation and slot-reuse rules as upstream, so the arithmetic is identical. It needs V3's
-option. A second commit on the branch, [`4edab03`](https://github.com/Cinderella-Man/miner-llama/commit/4edab03eff0937fc5d3923b8b63ec52d0baa1d24) (2026-11-25), releases ggml-vulkan's devices at exit, which
+option. A second commit on the branch, [`4edab03`](https://github.com/Cinderella-Man/llama.cpp-drmshare/commit/4edab03eff0937fc5d3923b8b63ec52d0baa1d24) (2026-11-25), releases ggml-vulkan's devices at exit, which
 avoids a crash at exit on driver 615 ([benchmarks/llama](../benchmarks/llama/README.md#llama-bench-crashes-at-exit-on-driver-615)).
 
 ```bash

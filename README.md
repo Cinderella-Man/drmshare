@@ -142,7 +142,7 @@ every pair from this repository and from the P2P guide, side by side. The `not t
 The code lives in two forks, pinned here as submodules:
 [Cinderella-Man/open-gpu-kernel-modules](https://github.com/Cinderella-Man/open-gpu-kernel-modules), branches
 `580-peer-vidmem-dmabuf` and `615-peer-vidmem-dmabuf` (the `nvidia-drm` option `peer_vidmem_dmabuf`), and
-[Cinderella-Man/miner-llama](https://github.com/Cinderella-Man/miner-llama), branch `vk-allreduce-shared-vram` (llama.cpp
+[Cinderella-Man/llama.cpp-drmshare](https://github.com/Cinderella-Man/llama.cpp-drmshare), branch `vk-allreduce-shared-vram` (llama.cpp
 with `GGML_VK_ALLREDUCE_P2P=1`). Code, option and log names still say P2P after the hardware path; the text says memory
 sharing.
 

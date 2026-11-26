@@ -1,6 +1,6 @@
 [submodule "tools/llama.cpp"]
 	path = tools/llama.cpp
-	url = https://github.com/Cinderella-Man/miner-llama.git
+	url = https://github.com/Cinderella-Man/llama.cpp-drmshare.git
 	branch = vk-allreduce-shared-vram
 	shallow = true
 	ignore = dirty

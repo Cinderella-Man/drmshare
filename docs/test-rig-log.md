@@ -122,7 +122,7 @@ driver is still compiling at exit. ggml-vulkan never destroyed its devices (each
 back to it: 2 references at exit), so nothing stopped that work in time. v1 only waited for the devices; it looked
 perfect, but the unfixed build stopped crashing too once the cache was warm, so it proved nothing. v2 also drops the
 references and destroys the devices in an exit handler that runs before NVIDIA's (1 reference at release): 0 of 4 with
-a cold cache. It is commit [`4edab03`](https://github.com/Cinderella-Man/miner-llama/commit/4edab03eff0937fc5d3923b8b63ec52d0baa1d24)
+a cold cache. It is commit [`4edab03`](https://github.com/Cinderella-Man/llama.cpp-drmshare/commit/4edab03eff0937fc5d3923b8b63ec52d0baa1d24)
 on the llama.cpp fork, pinned as `tools/llama.cpp`.
 
 615 without any key also stops the RTX 3060 at 4 GiB (25 driver lines per failed block instead of 73): 615 relaxes the
