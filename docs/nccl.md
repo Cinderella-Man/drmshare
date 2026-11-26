@@ -1,11 +1,11 @@
 # NCCL with memory sharing: an NCCL fork for pairs CUDA cannot connect
 
-> **EXPERIMENTAL.** On a Tesla V100 + RTX 3090, with `NCCL_DRMSHARE_ORDER=release`, this fork moves large
+> **EXPERIMENTAL.** On a Tesla V100 + RTX 3090 this fork moves large
 > all-reduces **44 % faster** than NCCL does through host RAM and makes plain llama.cpp **29 % faster** on prompts. Most
 > of llama.cpp's gain on this pair comes from llama.cpp itself, on stock NCCL (the
 > [P2P guide's llama.cpp section](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus#llamacpp-build-it-with-nccl)):
-> on top of those changes the fork adds **5 %** (974 -> 1,017-1,028 tokens/s). The default ordering is slower and,
-> with llama.cpp's changes, slower than stock NCCL. Tested on one pair for one evening; results below.
+> on top of those changes the fork adds **5 %** (974 -> 1,017-1,028 tokens/s). Tested on one pair for one evening;
+> results below.
 
 NVIDIA's NCCL moves data between GPUs for CUDA programs. Between two cards that CUDA refuses to pair, like a Tesla V100
 and an RTX 3090 (two GPU generations: no peer access), NCCL has no direct route and goes through host RAM. This page
@@ -24,23 +24,23 @@ NCCL's `all_reduce_perf`, two cards:
 | | 8 B | 2 MiB | 8 MiB | 128 MiB |
 |---|---|---|---|---|
 | NCCL (shared memory in host RAM) | 13.6 µs | 1.75 GB/s | 1.80 GB/s | 1.82 GB/s |
-| this fork, default (`read-back`) | 13.0 µs | 1.52 GB/s | 1.94 GB/s | 1.94 GB/s |
-| **this fork, `NCCL_DRMSHARE_ORDER=release`** | 13.0 µs | **2.18 GB/s** | **2.60 GB/s** | **2.63 GB/s** |
+| this fork, `NCCL_DRMSHARE_ORDER=readback` | 13.0 µs | 1.52 GB/s | 1.94 GB/s | 1.94 GB/s |
+| **this fork (default ordering, `release`)** | 13.0 µs | **2.18 GB/s** | **2.60 GB/s** | **2.63 GB/s** |
 
 The ceiling is the V100's x4 slot with both directions busy, about 2.8 GB/s. Small all-reduces go through NCCL's own
 shared memory either way (the fork's two lanes, below).
 
 llama.cpp, Qwen3.8-27B Q8_0, `-sm tensor`, prompt 2048 tokens per second, 2 rounds each:
 
-| llama.cpp | stock NCCL | **fork, `release`** | fork, default ordering | generation, all |
+| llama.cpp | stock NCCL | **fork (`release`)** | fork, `readback` | generation, all |
 |---|---|---|---|---|
 | plain (upstream as of 2026-11-24) | 720 | **932-933 (+29 %)** | 836 (+16 %) | 33.1-33.3 |
 | with its tensor-parallel speed-ups, `-ts 3/1 -ub 2048` (best prompts) | 974-975 | **1,017-1,028 (+5 %)** | 931-937 (-3 %, older build) | 33.7-33.8 |
-| the same at `-ts 3/2` (best generation), default ordering | 921-927 | | 909-910 (-1.6 %) | 37.4 |
-| the same at `-ts 3/2`, 8k / 32k-token prompts, default ordering | 821 / 552 | | 818 / 550 | 36.0 at 8k, 34.1-34.6 at 32k |
+| the same at `-ts 3/2` (best generation), `readback` | 921-927 | | 909-910 (-1.6 %) | 37.4 |
+| the same at `-ts 3/2`, 8k / 32k-token prompts, `readback` | 821 / 552 | | 818 / 550 | 36.0 at 8k, 34.1-34.6 at 32k |
 
 With llama.cpp's speed-ups, moving data overlaps with computing, and what counts is how little the transfer disturbs
-the GPUs as well as its speed. The default ordering's fetch-and-read-back steps cost more there than they save;
+the GPUs as well as its speed. The `readback` ordering's fetch-and-read-back steps cost more there than they save;
 `release` (every card writes its own data, no read across) is fast enough to come out ahead.
 
 ## What you need
@@ -90,8 +90,7 @@ CMake's output must say `Found NCCL`: without it llama.cpp builds without NCCL, 
 ```bash
 export LD_LIBRARY_PATH=$PWD/tools/nccl-drmshare/build/lib
 export NCCL_DRMSHARE_TRANSPORT=1
-export NCCL_DRMSHARE_ORDER=release          # the faster ordering (or leave it out for the default, below)
-export NCCL_DRMSHARE_SPLIT_BYTES=2097152    # 4194304 with the default ordering
+export NCCL_DRMSHARE_SPLIT_BYTES=2097152    # 4194304 with NCCL_DRMSHARE_ORDER=readback
 tools/llama.cpp/build-cuda/bin/llama-bench -m model.gguf -ngl 99 -sm tensor -p 2048 -n 128
 ```
 
@@ -99,8 +98,8 @@ tools/llama.cpp/build-cuda/bin/llama-bench -m model.gguf -ngl 99 -sm tensor -p 2
 |---|---|
 | `NCCL_DRMSHARE_TRANSPORT=1` | turns the transport on. With none of the `NCCL_DRMSHARE_` variables set, the fork behaves as NCCL 2.32.6 |
 | `NCCL_DRMSHARE_SPLIT_BYTES=<bytes>` | **two lanes**: all-reduces below go through NCCL's shared memory (about 13 µs for a small one), larger ones card to card. llama.cpp's generation makes about 128 small all-reduces per token; without the cut each pays the copy engine's 28-45 µs. Set it only together with `NCCL_DRMSHARE_TRANSPORT=1`: alone, it sends large transfers through NCCL's socket network |
-| `NCCL_DRMSHARE_ORDER=release` | every card writes its own data into the other, each copy followed by Vulkan's release of that memory to the other device; reads nothing across. 98 % of the raw speed. Passed the stale-step test below; newer than the default |
-| `NCCL_DRMSHARE_NOREAD=<bus id>` | default ordering only: a card whose memory must not be read by the other card fetches its data itself. Set it for a **Tesla V100 in a chipset slot**, which can freeze when another card reads its memory ([troubleshooting](troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)); `release` never reads across anyway. The bus id from `nvidia-smi --query-gpu=name,pci.bus_id --format=csv`, any unique part of it (`04:00`) |
+| `NCCL_DRMSHARE_ORDER` | `release` (the default): every card writes its own data into the other, each copy followed by Vulkan's release of that memory to the other device; reads nothing across; 98 % of the raw speed; passed the stale-step test below. `readback`: the first fixed version, slower (see the tables) |
+| `NCCL_DRMSHARE_NOREAD=<bus id>` | `readback` only: a card whose memory must not be read by the other card fetches its data itself. Set it for a **Tesla V100 in a chipset slot**, which can freeze when another card reads its memory ([troubleshooting](troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)); `release` never reads across anyway. The bus id from `nvidia-smi --query-gpu=name,pci.bus_id --format=csv`, any unique part of it (`04:00`) |
 
 ## 4. Check that it is used
 
@@ -123,7 +122,7 @@ with relaxed ordering the "data ready" mark could be seen before the data. The f
   the `#wrong` columns must be 0.
 - **Back to back**: nccl-tests' check starts each checked all-reduce from idle and did not catch the first version's
   bug (0 wrong in 7000 checks). Thousands of all-reduces back to back did: the first version gave 79 424 wrong
-  elements at 64-512 KiB, the default and `release` orderings 0 in 42 000 all-reduces each (two runs, 64 KiB-4 MiB,
+  elements at 64-512 KiB, the `readback` and `release` orderings 0 in 42 000 all-reduces each (two runs, 64 KiB-4 MiB,
   3000 per size). [`tools/stale_test.cu`](../tools/stale_test.cu): `nvcc -O2 -arch=native stale_test.cu -o stale_test
   -I<nccl>/build/include -L<nccl>/build/lib -lnccl`, then `./stale_test 65536 4194304 3000` with the fork's settings
   (add `NCCL_SHM_DISABLE=1 NCCL_NET_DISABLE_INTRA=1 NCCL_PROTO=Simple` and leave out the split to send every size through the transport).
@@ -137,10 +136,10 @@ with relaxed ordering the "data ready" mark could be seen before the data. The f
   DRMShare, and as a file descriptor that the receiving card's CUDA maps for NCCL's kernel. The sending kernel writes
   each step into a local buffer; NCCL's proxy thread copies the step across with a copy engine, waits for its fence,
   and then raises the "data ready" mark that the receiving kernel polls.
-- **Ordering.** Default: after each copy, 4 bytes are read back from the destination (a PCIe read cannot pass the
+- **Ordering.** `release` (default): every card pushes, and each copy ends with a Vulkan queue-family release to the
+  other device. `readback`: after each copy, 4 bytes are read back from the destination (a PCIe read cannot pass the
   writes before it); a card in `NCCL_DRMSHARE_NOREAD` fetches the data itself instead, so it is never read across.
-  `release`: every card pushes, and each copy ends with a Vulkan queue-family release to the other device. Each card
-  has two copy queues, so pushing and fetching run side by side.
+  Each card has two copy queues, so pushing and fetching run side by side.
 - **Simple protocol only.** NCCL's LL and LL128 protocols put their flags inside the data, which needs writes to land
   in order; a copy engine does not promise that. The small lane, which uses LL, stays on NCCL's shared memory.
 - **Two lanes** (`NCCL_DRMSHARE_SPLIT_BYTES`): each communicator gets a companion over the same GPUs that may use only
