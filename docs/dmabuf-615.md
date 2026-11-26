@@ -196,6 +196,16 @@ The 200 generated tokens were identical on both routes at every length. The card
 power cap, so each figure carries about ±10 %. The gain is large at short prompts and shrinks to a few percent from
 about 32,000 tokens on: the all-reduce per step stays the same size while the attention work grows with the context.
 
+**Against CUDA on the same cards.** Card to card, memory sharing copies exactly as fast as CUDA P2P with the P2P
+guide's patched driver: 6.60 GB/s through the chipset's x4 link, 13.1-13.2 GB/s between the x8 cards, for both. In
+llama.cpp the two cannot be compared one to one (memory sharing works only in the Vulkan backend, CUDA P2P only in the
+CUDA backend), but llama.cpp's **CUDA backend built with NCCL** was faster on these cards than the Vulkan backend with
+memory sharing, even without P2P: 1,366 tokens/s on 2048-token prompts and 51.2 generating on the stock driver
+(through host memory), 1,695 / 54.7 with the patched driver, against 1,213 / 37.0 here
+([the P2P guide's three-cards.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/three-cards.md#llamacpp-build-it-with-nccl)).
+Whole stacks compared on different days, not copy paths. For cards that CUDA runs, use the CUDA backend built with
+NCCL; memory sharing is for pairs CUDA cannot join and for Vulkan programs.
+
 Problems: one `llama-bench` run in 41 aborted at exit with a heap corruption, not reproduced in 38 more tries (with and
 without AddressSanitizer); after a two-hour benchmark (copies, shader writes, perplexity and serving), unloading the changed module left one card's display engine hung
 until a reboot (the two earlier unloads were clean). Neither is explained. Limits of this test: about four and a half

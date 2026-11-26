@@ -15,7 +15,9 @@ access, as before. llama.cpp can use it: with a second small change, its tensor-
 results through the shared memory ([what this is, and what it is not](docs/volta-dmabuf.md#what-this-is-and-what-it-is-not)).
 
 **Use CUDA P2P where you can.** If your pair has a P2P route in the companion guide,
-[how-to-enable-p2p-on-nvidia-gpus](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus), use that: it works for every CUDA program (NCCL, PyTorch, vLLM).
+[how-to-enable-p2p-on-nvidia-gpus](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus), use that: it works for every CUDA program (NCCL, PyTorch, vLLM). For llama.cpp on cards that CUDA runs, its CUDA backend built with NCCL
+was faster than the Vulkan backend with memory sharing on three RTX 3090s even without P2P
+([D5](docs/dmabuf-615.md#d5-three-rtx-3090s)).
 Hidden GEM is for the cases where P2P is not possible or does not fit:
 
 - a **Tesla V100 or a Pascal card with a card of another generation**: these cards run only on NVIDIA's closed driver
