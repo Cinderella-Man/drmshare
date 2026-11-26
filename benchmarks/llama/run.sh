@@ -1,6 +1,6 @@
 #!/bin/bash
 # llama.cpp (Vulkan) on two GPUs: tensor-parallel with the all-reduce through host RAM vs through shared video memory
-# (GGML_VK_ALLREDUCE_P2P=1, needs the Hidden GEM nvidia-drm loaded), plus layer split as a reference. Same binary for
+# (GGML_VK_ALLREDUCE_P2P=1, needs the DRMShare nvidia-drm loaded), plus layer split as a reference. Same binary for
 # every setting. Writes perplexity logs, llama-bench tables, one llama-server chat answer and the kernel log count per
 # step into OUT.
 #

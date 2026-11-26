@@ -15,9 +15,9 @@ first port to 615, every driver branch) is told in [volta-dmabuf.md](volta-dmabu
 | Software | Ubuntu 26.04.1, kernel 7.0.0-44, Ubuntu's `nvidia-driver-*-open` packages, llama.cpp from `tools/llama.cpp` (`ab88444`), Vulkan build |
 | Model | Qwen3.8-27B UD-Q3_K_XL, 13.1 GB, sha256 checked after the copy |
 
-### 1. Driver 580, open modules: Hidden GEM
+### 1. Driver 580, open modules: DRMShare
 
-The rig was on Ubuntu's `nvidia-driver-580-open` from the day before, never tested with Hidden GEM.
+The rig was on Ubuntu's `nvidia-driver-580-open` from the day before, never tested with DRMShare.
 `scripts/drv-test.sh` with the published 580 version (`9904ca0`): the stock `nvidia-drm` refuses the import, the
 changed one shares 1 GiB each way byte-exact (3.18 / 2.95 GB/s), 5.63 GB/s both ways, soak 10/10, and the kernel log
 has no driver line, no lock assertion and no failed import. So the export-time variant that 615 needed is not needed
@@ -70,7 +70,7 @@ The rig's `/etc/modprobe.d` had `RMForceStaticBar1=0` for the RTX 2060 only: `ge
 default `DRIVER_OPTION=auto` covers only the cards it enlarged itself, and the RTX 3060's window comes from its own
 firmware. Set to `DRIVER_OPTION=on` and rewritten (`geforce-bar1-resize driver-option --write`): one group per card.
 
-### 5. Driver 595: Hidden GEM, Qwen, and a per-card option that misses one card
+### 5. Driver 595: DRMShare, Qwen, and a per-card option that misses one card
 
 `scripts/switch-driver.sh 595`, reboot, `scripts/drv-test.sh` with the 615 version: passed (3.27 / 2.94 GB/s,
 5.61 GB/s both ways, soak 10/10, no driver line). The Qwen run: correct (perplexity 6.1309 both ways), but 1182 driver
@@ -97,7 +97,7 @@ key reaches the RTX 3060 (11 GiB, alone or with both cards listed), and the RTX 
 server in the same state answered at 18.9 tokens/s: the first request after a driver change compiles the Vulkan
 pipelines the server needs. The run script now sends two requests.
 
-### 6. Driver 615: Hidden GEM, Qwen, and a crash at exit
+### 6. Driver 615: DRMShare, Qwen, and a crash at exit
 
 `scripts/switch-driver.sh` back to the P2P guide's 615 set, reboot. 615 applies the per-card key to the RTX 3060
 (11 GiB with the per-card string alone). `scripts/drv-test.sh` with the 615 version: passed (3.28 / 2.96 GB/s,
@@ -144,8 +144,8 @@ Layer split: 13.5 tokens/s generating, about 615 tokens/s reading 2048-token pro
 - A long run: each setting ran for minutes (perplexity over 8 chunks, `llama-bench` with 3 repetitions, two chat
   answers). No hours-long server soak, no long contexts, no several users at once, one quantization of one model.
 - A speedup on this pair: the shared all-reduce gives the same speed as host RAM within 1-4 %.
-- Hidden GEM together with the P2P guide's patched driver: every run here used Ubuntu's stock modules.
+- DRMShare together with the P2P guide's patched driver: every run here used Ubuntu's stock modules.
 - A boot install: the changed `nvidia-drm` was loaded by hand each time.
 
 Rig state at the end: Ubuntu's 615 open packages, held; `RMForceStaticBar1=0` for both cards through
-`geforce-bar1-resize` (`DRIVER_OPTION=on`); Hidden GEM's `nvidia-drm` loaded by hand.
+`geforce-bar1-resize` (`DRIVER_OPTION=on`); DRMShare's `nvidia-drm` loaded by hand.

@@ -1,4 +1,6 @@
-# Hidden GEM: share video memory between NVIDIA GPUs of different generations
+# DRMShare: share video memory between NVIDIA GPUs of different generations
+
+*Formerly Hidden GEM. DRM as in Linux's Direct Rendering Manager, the kernel's graphics subsystem it is built on.*
 
 One opt-in option in `nvidia-drm`, the part of NVIDIA's Linux driver that ships as source, lets **Vulkan** on one GPU
 import another GPU's video memory through a Linux **dma-buf**. Each card then copies straight into the other's memory
@@ -6,9 +8,9 @@ over PCIe, instead of through host RAM. It works on pairs CUDA refuses, because 
 Tesla V100 with an RTX 3090, an RTX 2060 or a GTX 1070 Ti, and an RTX 2060 with an RTX 3060. It runs on NVIDIA's own
 drivers 580, 595 and 615, without a patched driver and without a patched `libcuda`.
 
-The name: the buffers it shares are `nvidia-drm`'s **GEM** objects, and the ability was already there, hidden in
-NVIDIA's own open-source code. The change adds 110 lines (580) or 144 lines (615) to three `nvidia-drm` files, and the
-option is off by default.
+The name: the sharing comes from `nvidia-drm`, NVIDIA's part of Linux's **DRM**, and the buffers it shares are DRM's
+GEM objects; the ability was already there, hidden in NVIDIA's own open-source code (hence the old name). The change
+adds 110 lines (580) or 144 lines (615) to three `nvidia-drm` files, and the option is off by default.
 
 **This is memory sharing, not CUDA P2P.** Only Vulkan programs can use it; CUDA, NCCL, PyTorch and vLLM see no peer
 access, as before. llama.cpp can use it: with a second small change, its tensor-parallel mode adds up each layer's
@@ -19,7 +21,7 @@ results through the shared memory ([what this is, and what it is not](docs/volta
 was faster than the Vulkan backend with memory sharing even without P2P, on both setups where both were measured: three
 RTX 3090s ([D5](docs/dmabuf-615.md#d5-three-rtx-3090s)) and the Tesla V100 + RTX 3090, where CUDA has no peer access at
 all (719 against 412 tokens/s on prompts, [V6](docs/volta-dmabuf.md#v6-llamacpp-tensor-parallel-with-an-all-reduce-through-shared-video-memory)).
-Hidden GEM is for the cases where P2P is not possible or does not fit:
+DRMShare is for the cases where P2P is not possible or does not fit:
 
 - a **Tesla V100 or a Pascal card with a card of another generation**: these cards run only on NVIDIA's closed driver
   580 (the guide's patched driver cannot run them), and CUDA refuses peer access between two architectures;
@@ -27,7 +29,7 @@ Hidden GEM is for the cases where P2P is not possible or does not fit:
   plus a patched copy of `libcuda` or root);
 - **programs that use Vulkan rather than CUDA**, like llama.cpp's Vulkan backend.
 
-The guide keeps the same list: [When P2P is not possible](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus#when-p2p-is-not-possible-hidden-gem).
+The guide keeps the same list: [When P2P is not possible](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus#when-p2p-is-not-possible-drmshare).
 
 **Experimental.** Tested on three machines, three driver versions and six setups (five pairs, and three RTX 3090s
 together), every word of every copy checked: about 20 hours of tests so far, and a longer stress run is in progress.
@@ -104,10 +106,10 @@ than layer split there ([benchmarks/llama](benchmarks/llama/README.md)).
 
 ## Every pair so far
 
-The goal is for Hidden GEM to work on every pair, including those where CUDA P2P already works, so this table lists
+The goal is for DRMShare to work on every pair, including those where CUDA P2P already works, so this table lists
 every pair from this repository and from the P2P guide, side by side. The `not tested` cells are the to-do list.
 
-| Cards | Generations | CUDA P2P | Hidden GEM |
+| Cards | Generations | CUDA P2P | DRMShare |
 |---|---|---|---|
 | Tesla V100 + RTX 3090 | Volta + Ampere | **not possible**: the V100 needs the closed driver 580, and CUDA refuses peer access between two architectures (NVIDIA's `ForceP2P` key makes the kernel agree, CUDA still says no; a patched `libcuda` for 580 was not tried) | **works** on 580: 2.96 / 3.26 GB/s, 5.62 GB/s both ways, soak 20/20; llama.cpp Qwen3.8-27B identical, prompts +19 % with the V100 in the x4 chipset slot (with it in x16, host RAM is faster), while llama.cpp's CUDA backend with NCCL, through host RAM, is faster than both (719 against 412 tokens/s) ([volta-dmabuf.md](docs/volta-dmabuf.md)); a V100 in a chipset slot can freeze when read while a program starts or stops on it ([troubleshooting](docs/troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)) |
 | Tesla V100 + RTX 2060 | Volta + Turing | **not possible**, as above | **works** on 580: 2.91 / 3.28 GB/s, soak 20/20 (with an 8 GB window on the RTX 2060; with its stock 256 MB window, buffers up to 224 MiB) |
@@ -133,7 +135,7 @@ every pair from this repository and from the P2P guide, side by side. The `not t
 | [docs/test-rig-log.md](docs/test-rig-log.md) | What was run on the test rig on 2026-11-25, in order: what worked, what did not, the dead ends and false alarms, and what the tests do not show. |
 | [benchmarks/llama](benchmarks/llama/README.md) | llama.cpp tensor parallel on the RTX 2060 + RTX 3060: scripts, results on three drivers, and a crash at exit on driver 615. |
 | [tools/](tools) | `p2p_dmabuf.cpp` (the Vulkan test: share, copy both ways, check every word), `staged_baseline.cu` (CUDA through host RAM, the baseline), `keep_busy.cu` (keeps a receiving card out of its idle state), `bar1_probe.cpp` (how much host-visible video memory Vulkan can map), `p2p_iomem.cu` (the P2P guide's I/O-memory route, compared in volta-dmabuf.md); the changed `nvidia-drm` for 580 and 615 and the changed llama.cpp as pinned submodules. |
-| [scripts/](scripts) | The steps as scripts, for a test machine: `drv-test.sh` (build Hidden GEM's `nvidia-drm` for the running driver and run every test: D1-D3 in one go), `switch-driver.sh` (another Ubuntu driver branch), `run-driver.sh` (NVIDIA's `.run` installer for branches Ubuntu does not package), `reload-nvidia.sh` (reload with driver keys, without a reboot). |
+| [scripts/](scripts) | The steps as scripts, for a test machine: `drv-test.sh` (build DRMShare's `nvidia-drm` for the running driver and run every test: D1-D3 in one go), `switch-driver.sh` (another Ubuntu driver branch), `run-driver.sh` (NVIDIA's `.run` installer for branches Ubuntu does not package), `reload-nvidia.sh` (reload with driver keys, without a reboot). |
 | [patches/](patches) | `595-per-device-registry-keys.diff`: 615's per-card option lookup for driver 595 ([troubleshooting](docs/troubleshooting.md)). |
 | [docs/assets](docs/assets) | Infographics: V100 + RTX 3090, and four generations on driver 580 (`make_infographic.py`). |
 

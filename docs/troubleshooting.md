@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Problems that came up with Hidden GEM and the programs that use it. The hardware-side problems (a board that does not
+Problems that came up with DRMShare and the programs that use it. The hardware-side problems (a board that does not
 carry peer traffic, a chipset that drops peer reads, the machine reset under heavy reads in both directions) are the
 same as for CUDA P2P and are described in the P2P guide's
 [troubleshooting](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/troubleshooting.md)
@@ -118,7 +118,7 @@ hand; a reboot returns to Ubuntu's module:
 ```bash
 cp -a /usr/src/nvidia-595.99.02 ~/nv595-reg
 cd ~/nv595-reg
-patch -p1 < ~/hidden-gem/patches/595-per-device-registry-keys.diff
+patch -p1 < ~/drmshare/patches/595-per-device-registry-keys.diff
 make -j"$(nproc)" SYSSRC=/lib/modules/$(uname -r)/build modules
 sudo systemctl stop gdm nvidia-persistenced
 sudo rmmod nvidia_drm nvidia_uvm nvidia_modeset nvidia
@@ -128,7 +128,7 @@ sudo insmod nvidia-uvm.ko
 ```
 
 Put your own cards' addresses in the `pci=` groups (`lspci -D -d 10de::0300`). `insmod` does not read
-`/etc/modprobe.d`, so the keys go on its command line. Then load Hidden GEM's `nvidia-drm` as usual (if the stock one
+`/etc/modprobe.d`, so the keys go on its command line. Then load DRMShare's `nvidia-drm` as usual (if the stock one
 came back with `nvidia-modeset`, `rmmod nvidia_drm` first). Expected: `sudo tools/bar1_probe 1 1024 11` maps
 `11.00 GiB` on the RTX 3060 with `NVRM lines +0`, with only the per-card keys; giving only the 3060 a key works too,
 and a per-card `RMForceStaticBar1=1` for the first card still reaches it (2 GiB on the RTX 2060). Not published as a

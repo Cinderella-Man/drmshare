@@ -1,10 +1,10 @@
 #!/bin/bash
-# Reload all NVIDIA kernel modules with optional driver registry keys, then put the changed nvidia-drm (Hidden GEM) in.
+# Reload all NVIDIA kernel modules with optional driver registry keys, then put the changed nvidia-drm (DRMShare) in.
 # For trying a key such as RMForceStaticBar1=0 without a reboot (docs/troubleshooting.md). Keys given here apply to
 # every card (NVreg_RegistryDwords) and come on top of what /etc/modprobe.d sets.
 #
 # usage: sudo scripts/reload-nvidia.sh <changed nvidia-drm.ko> ["Key=Value;Key2=Value2"]
-#   nvidia-drm.ko: the one drv-test.sh built (default build tree: /var/tmp/hidden-gem-test/nvsrc/nvidia-drm.ko)
+#   nvidia-drm.ko: the one drv-test.sh built (default build tree: /var/tmp/drmshare-test/nvsrc/nvidia-drm.ko)
 # Stops gdm and nvidia-persistenced: nothing may hold the GPUs.
 set -u
 DRM=$(realpath "${1:?usage: reload-nvidia.sh <nvidia-drm.ko> [keys]}")

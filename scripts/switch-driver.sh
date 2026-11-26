@@ -1,5 +1,5 @@
 #!/bin/bash
-# Switch Ubuntu's NVIDIA driver to another branch and hold it there, for testing Hidden GEM on each driver version.
+# Switch Ubuntu's NVIDIA driver to another branch and hold it there, for testing DRMShare on each driver version.
 # Saves the current NVIDIA package list first, so you can go back to exactly that set (apt-get install <name>=<version>).
 #
 # usage: sudo scripts/switch-driver.sh <branch>     then reboot

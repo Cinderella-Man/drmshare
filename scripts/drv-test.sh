@@ -1,24 +1,24 @@
 #!/bin/bash
-# Build Hidden GEM's nvidia-drm for the running driver and test it on two GPUs, in one go (docs/dmabuf-615.md D1-D3).
+# Build DRMShare's nvidia-drm for the running driver and test it on two GPUs, in one go (docs/dmabuf-615.md D1-D3).
 # Copies the running driver's source, applies the patches its dkms.conf lists for this kernel (as DKMS does), then the
-# Hidden GEM diff, builds, checks that the stock nvidia-drm refuses the import, swaps in the changed module
+# DRMShare diff, builds, checks that the stock nvidia-drm refuses the import, swaps in the changed module
 # (peer_vidmem_dmabuf=1), and runs: 1 GiB each way with the receiving card kept busy, both ways at once, CUDA through
 # host RAM as the baseline, a 10 x 1 GiB soak, and the kernel log.
 #
-# usage: sudo scripts/drv-test.sh <Hidden GEM diff> [driver source dir]
+# usage: sudo scripts/drv-test.sh <DRMShare diff> [driver source dir]
 #   diff:  the 580 or 615 version (docs/dmabuf-drivers.md says which), e.g. from the submodules:
-#          git -C tools/open-gpu-kernel-modules-615 diff HEAD~1 HEAD -- kernel-open/nvidia-drm > /tmp/hidden-gem.diff
+#          git -C tools/open-gpu-kernel-modules-615 diff HEAD~1 HEAD -- kernel-open/nvidia-drm > /tmp/drmshare.diff
 #          (needs the submodule fetched with --depth 2)
 #   source: default /usr/src/nvidia-<version> (Ubuntu's DKMS source); for NVIDIA's .run, its unpacked kernel-open dir
 # Environment: GPU_A, GPU_B (default 0 and 1, nvidia-smi order), BIN (compiled p2p_dmabuf, keep_busy, staged_baseline;
-#   default tools/), WORK (build tree and logs; default /var/tmp/hidden-gem-test).
+#   default tools/), WORK (build tree and logs; default /var/tmp/drmshare-test).
 # Stops gdm and nvidia-persistenced (nothing may hold nvidia-drm). The changed module stays loaded until the next reboot.
 # Sets kernel.panic=10 and kernel.panic_on_oops=1 for this boot, so a crash reboots the machine instead of hanging it.
 set -u
 DIFF=$(realpath "$1")
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 BIN=$(realpath "${BIN:-$REPO/tools}")
-WORK=${WORK:-/var/tmp/hidden-gem-test}
+WORK=${WORK:-/var/tmp/drmshare-test}
 A=${GPU_A:-0}; B=${GPU_B:-1}
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 for t in p2p_dmabuf keep_busy staged_baseline; do [ -x "$BIN/$t" ] || { echo "build $BIN/$t first (see its header)"; exit 1; }; done
@@ -34,7 +34,7 @@ for i in $(grep -o -E '^PATCH\[[0-9]+\]' dkms.conf | grep -o -E '[0-9]+'); do
   m=$(sed -n "s/^PATCH_MATCH\[$i\]=[\"']\(.*\)[\"']$/\1/p" dkms.conf)
   if [ -z "$m" ] || [[ $KV =~ $m ]]; then patch -p1 -s < patches/$p && echo "   distribution fix applied: $p"; fi
 done
-patch -p2 -s < "$DIFF" || { echo "HIDDEN GEM DIFF DID NOT APPLY"; exit 1; }
+patch -p2 -s < "$DIFF" || { echo "DRMSHARE DIFF DID NOT APPLY"; exit 1; }
 make -j"$(nproc)" SYSSRC=/lib/modules/$KV/build modules > ../build-$V.log 2>&1 || { echo "BUILD FAILED"; grep -m5 "error" ../build-$V.log; exit 1; }
 echo "   built; $(modinfo -F parm nvidia-drm.ko | grep -o 'peer_vidmem_dmabuf:[^(]*' | cut -c1-60)"
 cd ..

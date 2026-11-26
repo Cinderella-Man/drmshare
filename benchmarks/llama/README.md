@@ -1,6 +1,6 @@
 # llama.cpp on two GPUs: the all-reduce through host RAM vs through shared video memory
 
-Does memory sharing ([Hidden GEM](../../docs/dmabuf-615.md)) make a real language model faster? This folder runs
+Does memory sharing ([DRMShare](../../docs/dmabuf-615.md)) make a real language model faster? This folder runs
 **llama.cpp**'s Vulkan backend with **tensor parallel** (`-sm tensor`: every layer is split across both cards, which add
 up their partial results, an all-reduce, after each one) and compares the all-reduce through host RAM (upstream) with
 the all-reduce through shared video memory (`GGML_VK_ALLREDUCE_P2P=1`, the changed llama.cpp of
@@ -46,7 +46,7 @@ Two problems turned up on the way, neither caused by memory sharing:
 |---|---|
 | GPU 0 | RTX 2060 6 GB (TU104), B550 chipset slot, PCIe 3.0 x4, 8 GB window ([turing.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/turing.md) T1-T3) |
 | GPU 1 | RTX 3060 12 GB (GA106), CPU slot, PCIe 4.0 x16, 16 GB window (Resizable BAR) |
-| Memory sharing | Hidden GEM `nvidia-drm` loaded by hand: the 580 version on 580, the 615 version on 595 and 615 ([dmabuf-drivers.md](../../docs/dmabuf-drivers.md)); before each Qwen run the driver test of [dmabuf-615.md](../../docs/dmabuf-615.md) D3 passed (1 GiB each way byte-exact, both ways 5.61-5.63 GB/s, 10 x 1 GiB soak, no driver line in the kernel log) |
+| Memory sharing | DRMShare `nvidia-drm` loaded by hand: the 580 version on 580, the 615 version on 595 and 615 ([dmabuf-drivers.md](../../docs/dmabuf-drivers.md)); before each Qwen run the driver test of [dmabuf-615.md](../../docs/dmabuf-615.md) D3 passed (1 GiB each way byte-exact, both ways 5.61-5.63 GB/s, 10 x 1 GiB soak, no driver line in the kernel log) |
 | Static BAR1 | off for both cards (`RMForceStaticBar1=0`): on 580 for all cards at once (`NVreg_RegistryDwords`), on 615 per card, on 595 per card with `nvidia.ko` rebuilt with 615's version of the per-card lookup ([why](../../docs/dmabuf-drivers.md#llamacpp-on-each-driver)). The `-static-bar1-on` folders are the runs before that, with static BAR1 still on for the RTX 3060 |
 | Host | Ryzen 9 3900X, 8 GB RAM, Ubuntu 26.04.1, kernel 7.0.0-44, Ubuntu's `nvidia-driver-*-open` packages |
 | llama.cpp | `tools/llama.cpp` at `ab88444` (upstream `0ce7f213` + the shared-memory all-reduce), Vulkan build; the exit fix `4edab03` came after these runs |
@@ -136,7 +136,7 @@ sudo MODEL=/path/to/Qwen3.8-27B-UD-Q3_K_XL.gguf TEXT=/tmp/guide-text.txt benchma
 benchmarks/llama/summarize.py benchmarks/llama/results/local/<date>-<model>
 ```
 
-Load the Hidden GEM `nvidia-drm` first ([dmabuf-615.md](../../docs/dmabuf-615.md) D1-D2), with the display manager
+Load the DRMShare `nvidia-drm` first ([dmabuf-615.md](../../docs/dmabuf-615.md) D1-D2), with the display manager
 stopped. Without it the shared-memory runs fall back to host RAM, and their log has no `all-reduce writes straight
 into peer VRAM` line. `run.sh` takes the split from each card's memory, counts the driver's kernel log lines per step
 when it runs as root, and takes about 15 minutes for this model (the first run after a driver change compiles shaders
