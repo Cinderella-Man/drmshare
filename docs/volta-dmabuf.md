@@ -454,8 +454,19 @@ In 580's source (`p2p_caps.c`) it is checked before the chipset, topology and sa
 The kernel driver accepts the pair, CUDA does not: `libcuda` has its own architecture check, the one that also
 stops the RTX 2060 + RTX 3060 ([mixed-generations.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/mixed-generations.md#why-cuda-says-no)). CUDA P2P for this
 pair would also need that check patched (as route 1 there does, on driver 615), and a test that forced P2P between a
-data-center card and a GeForce card actually moves data correctly. Neither was tried. The memory sharing on this page
-needs neither.
+data-center card and a GeForce card actually moves data correctly. The memory sharing on this page needs neither.
+
+Tried on 2026-11-26, the V100 in the PCIe 3.0 x4 chipset slot:
+
+- **Writes only** (`ForceP2P=0x10;RMPcieP2PType=1`): `nvidia-smi topo -p2p w` says `OK` both ways (reads `DR`, disabled
+  as asked), but `cudaDeviceCanAccessPeer` stays NO, with the stock `libcuda` and with a copy patched at the same four
+  checks as the P2P guide's 615 patch (580 keeps the compared field at another offset).
+- **Reads allowed as well** (`ForceP2P=0x11;RMPcieP2PType=1`): the whole machine froze within about a second, while
+  loading the driver or at the first CUDA call, before any data moved, and needed a power cycle (no Xid; the cards were fine after). The check
+  in the table above, `0x11` without `RMPcieP2PType=1`, had loaded without trouble. Do not try this with a V100 in a
+  chipset slot.
+
+So CUDA P2P stays out for this layout. The swapped layout, the V100 in the x16 CPU slot, was not tried.
 
 ## Not tested yet
 
