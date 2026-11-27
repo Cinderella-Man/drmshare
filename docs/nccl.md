@@ -68,7 +68,7 @@ was not measured in this layout; on the same two cards with CPU lanes it was 0.5
 ## 1. Build the NCCL fork
 
 The fork is pinned here as `tools/nccl-drmshare` ([Cinderella-Man/nccl-drmshare](https://github.com/Cinderella-Man/nccl-drmshare),
-branch `2.32.6-drmshare`: two commits on NVIDIA's `v2.32.6-1` tag, the transport and then its pair check and `readback` default).
+branch `2.32.6-drmshare`: three commits on NVIDIA's `v2.32.6-1` tag: the transport, its pair check and `readback` default, the channel mix).
 
 ```bash
 git submodule update --init --depth 1 tools/nccl-drmshare
@@ -112,6 +112,7 @@ tools/llama.cpp/build-cuda/bin/llama-bench -m model.gguf -ngl 99 -sm tensor -p 2
 | `NCCL_DRMSHARE_SPLIT_BYTES=<bytes>` | **two lanes**: all-reduces below go through NCCL's shared memory (about 13 µs for a small one), larger ones card to card. llama.cpp's generation makes about 128 small all-reduces per token; without the cut each pays the copy engine's 28-45 µs. Set it only together with `NCCL_DRMSHARE_TRANSPORT=1`: alone, it sends large transfers through NCCL's socket network |
 | `NCCL_DRMSHARE_ORDER` | `readback` (the default since 2026-11-27): after each copy, 4 bytes are read back from the destination (a PCIe read cannot pass the writes before it); **0 wrong on every machine and link tested, slow ones included**; 0.5 % behind `release` in llama.cpp on a V100 + RTX 3090. `release` (the default until then): every card writes its own data into the other, each copy followed by Vulkan's release of that memory to the other device; reads nothing across. **`release` lets wrong data through whenever a link that carries peer writes is slow, in this program or another one on the same machine** (a USB x1 riser, a port running at 2.5 GT/s: [safe by default](#safe-by-default-every-pair-checked-readback-everywhere)), and it did on a GTX 750 Ti behind a chipset ([Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090)). Use it only where every card's link runs at 8 GT/s and x4 or wider, and after the stale-step test ([5](#5-check-that-the-results-are-right)) passed with it on your cards; the fork warns when it sees a slow link on a pair with `release` set. `none`: no ordering, for reproducing the first version's bug only |
 | `NCCL_DRMSHARE_NOREAD=<bus id>` | `readback` only: a card whose memory must not be read by the other card fetches its data itself (slower: its copy engine then works both directions). For a **Tesla V100 in a chipset slot**, which can freeze when another card reads its memory in large bursts ([troubleshooting](troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)): `readback` reads 4 bytes per step there, far from the 1 MiB bursts that stopped it (4 and 64 KiB bursts never did), but that layout was not tested with the read-backs: set it to be sure. `release` never reads across. The bus id from `nvidia-smi --query-gpu=name,pci.bus_id --format=csv`, any unique part of it (`04:00`) |
+| `NCCL_DRMSHARE_CHANNEL_MIX=<d>:<s>` | `d` of every `d+s` channels of the large lane card to card, the other `s` through host memory. Where every card has its own CPU link, `1:3` with `NCCL_MIN_NCHANNELS=4 NCCL_MAX_NCHANNELS=4` made the fork faster than stock NCCL ([both routes at once](#faster-on-cpu-lanes-both-routes-at-once)); unset, every channel goes card to card |
 | `NCCL_DRMSHARE_CHECK=0` | skips the pair check's writes (each card writing 4 MiB into the other before the first connection, [safe by default](#safe-by-default-every-pair-checked-readback-everywhere)); a pair that cannot reach the other then gives wrong results instead of going through host memory |
 | `NCCL_DRMSHARE_TEST_REFUSE=<a>,<b>` | for testing the fallback: refuses the pair of CUDA devices `a` and `b` as if its check had failed |
 
@@ -388,6 +389,50 @@ Tested on four cards in one machine, NVIDIA's closed 580.178.04: a GTX 1070 Ti (
   stayed at 8 GT/s through 3-second pauses (sampled four times a second), and `release` held across them (0 wrong): an
   idle card's slow link only matters once it carries traffic.
 
+## Faster on CPU lanes: both routes at once
+
+Where every card has its own CPU link, the card-to-card route alone was slower than stock NCCL on three or more cards
+(above). Since 2026-11-27 the fork can send part of the large lane's channels card to card and the rest through host
+memory: `NCCL_DRMSHARE_CHANNEL_MIX=<d>:<s>` puts `d` of every `d+s` channels on DRMShare and `s` on NCCL's shared
+memory. The same four cards as above (GTX 1070 Ti, RTX 2060, RTX 3090, V100, PCIe 3.0 x4 each), every result checked:
+
+- **The card-to-card route is bandwidth-bound here, not latency-bound**: NCCL's buffer size (4-16 MiB, so fewer copies
+  and fewer start costs) and channel count (1-4) changed nothing (four cards 1.42-1.45 GB/s, two 2.06-2.11).
+- `all_reduce_perf` at 128 MiB, GB/s (busbw):
+
+  | | four cards | RTX 3090 + V100 |
+  |---|---|---|
+  | stock NCCL | 2.10 | 2.07-2.14 |
+  | stock NCCL, `NCCL_MIN_NCHANNELS=4 NCCL_MAX_NCHANNELS=4` | 2.14 | 2.21 |
+  | the fork, card to card only | 1.43 | 2.08 |
+  | the fork, mix `1:1` (two channels) | 1.92 | 2.17 |
+  | **the fork, mix `1:3` with four channels** | **2.15** | **2.24** |
+  | the fork, mix `3:1` with four channels | 1.64 | 2.06 |
+
+- llama.cpp-drmshare, Qwen3.8-27B Q8_0, `-sm tensor -ub 2048`, prompt 2048 tokens/s (2 rounds); generation was the same
+  on every route (20.1-20.6 on four power-capped cards, 32.1-32.3 on the pair):
+
+  | | four cards (`-ts 4/3/16/23`, power-capped) | RTX 3090 + V100 (`-ts 12/15`) |
+  |---|---|---|
+  | stock NCCL | 621-624 | 821-831 |
+  | stock NCCL, four channels | 644 | 824 |
+  | the fork, card to card only | 544-545 | 856-861 |
+  | **the fork, mix `1:3`, four channels** | **657-658 (+6 % over stock)** | **869-872 (+5 %)** |
+
+- **Correct**: the back-to-back test through the mix on four cards, 4-32 MiB x 300, f32 and bf16, 0 wrong; perplexity
+  identical chunk for chunk to stock NCCL **with four channels** (6.0012; with two channels both give 5.9937: four
+  channels sum in another order, in stock NCCL too).
+
+So on such a machine use
+
+```bash
+export NCCL_DRMSHARE_CHANNEL_MIX=1:3 NCCL_MIN_NCHANNELS=4 NCCL_MAX_NCHANNELS=4
+```
+
+It is an opt-in because the best ratio depends on the machine: where a card's own link to host memory is the narrow
+one (the V100 in a chipset slot at the top of this page), the card-to-card route alone was far faster than host
+memory, and an even split by channel would hold it back. The mix was not tried there.
+
 ## How it works
 
 - **The transport** (`src/transport/drmshare.cc`) follows NCCL's P2P transport in its copy-engine mode. The receiving
@@ -423,9 +468,10 @@ Tested on four cards in one machine, NVIDIA's closed 580.178.04: a GTX 1070 Ti (
   rings over three, four and five generations on 580 (Maxwell, Pascal, Volta, Turing, Ampere: [three-generations.md](three-generations.md)),
   and three RTX 3090s on driver 615 for four hours ([above](#three-rtx-3090s-on-driver-615-a-four-hour-stress)). The
   pair check and the `readback` default on four of those cards ([safe by default](#safe-by-default-every-pair-checked-readback-everywhere)).
-- **Not always faster**: on cards that all have their own CPU lanes, stock NCCL through host memory was faster
-  ([three generations](#three-generations-a-v100-a-gtx-1650-super-and-an-rtx-3090)); the gain comes where a card's link
-  to host memory is the narrow one.
+- **Not always faster**: on cards that all have their own CPU lanes, stock NCCL through host memory was faster than the
+  card-to-card route alone ([three generations](#three-generations-a-v100-a-gtx-1650-super-and-an-rtx-3090)); there the
+  channel mix makes the fork a few per cent faster than stock ([both routes at once](#faster-on-cpu-lanes-both-routes-at-once)),
+  and the large gains come where a card's link to host memory is the narrow one.
 - **A pair that cannot carry peer traffic goes through host memory.** Two cards behind one AMD or Intel chipset cannot
   reach each other ([troubleshooting](troubleshooting.md#two-cards-behind-one-amd-chipset-the-copy-finishes-nothing-arrives));
   the pair check finds that and sends that pair through NCCL's shared memory on the large lane, the others card to

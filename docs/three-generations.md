@@ -91,6 +91,9 @@ RTX 2060 125 W), which costs generation speed: the RTX 3090 + V100 pair alone gi
   350), and with every card on its own CPU link NCCL's route through host memory beats the fork's card-to-card route:
   in a ring every card sends and receives at once, and all of that turns at the CPU. The fork pays off where a card's
   link to host memory is the narrow one ([nccl.md](nccl.md#three-generations-a-v100-a-gtx-1650-super-and-an-rtx-3090)).
+  Later the same evening, sending three of every four channels through host memory and one card to card
+  (`NCCL_DRMSHARE_CHANNEL_MIX`) put the fork 6 % ahead of stock NCCL on four of these cards
+  ([nccl.md](nccl.md#faster-on-cpu-lanes-both-routes-at-once)).
 - **Minutes, not hours**: each set ran for about half an hour of tests; the four-hour stress ran on three RTX 3090s
   ([nccl.md](nccl.md#three-rtx-3090s-on-driver-615-a-four-hour-stress)).
 - **The board decides**: one card at most behind an AMD or Intel chipset; cards on a USB x1 riser may need their link
