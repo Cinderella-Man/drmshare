@@ -6,8 +6,10 @@
 > [P2P guide's llama.cpp section](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus#llamacpp-build-it-with-nccl)):
 > on top of those changes the fork adds **5 %** (974 -> 1,017-1,028 tokens/s), all from the large all-reduces of prompt
 > processing: small ones keep NCCL's own path. Since then also run on three RTX 3090s for four hours and in rings over
-> three and four GPU generations ([three-generations.md](three-generations.md)), every answer identical to stock NCCL. On a
-> slow link the default ordering lets wrong data through: use `NCCL_DRMSHARE_ORDER=readback` there ([settings](#3-run)).
+> three, four and five GPU generations ([three-generations.md](three-generations.md)), every answer identical to stock
+> NCCL. Since 2026-11-27 the fork checks every pair of cards before using it (a pair that fails goes through host memory)
+> and uses the safe `readback` ordering by default; the faster `release` of the tables below is an opt-in for machines
+> where every card's link is fast ([safe by default](#safe-by-default-every-pair-checked-readback-everywhere)).
 
 NVIDIA's NCCL moves data between GPUs for CUDA programs. Between two cards that CUDA refuses to pair, like a Tesla V100
 and an RTX 3090 (two GPU generations: no peer access), NCCL has no direct route and goes through host RAM. This page
@@ -26,8 +28,8 @@ NCCL's `all_reduce_perf`, two cards:
 | | 8 B | 2 MiB | 8 MiB | 128 MiB |
 |---|---|---|---|---|
 | NCCL (shared memory in host RAM) | 13.6 µs | 1.75 GB/s | 1.80 GB/s | 1.82 GB/s |
-| this fork, `NCCL_DRMSHARE_ORDER=readback` | 13.0 µs | 1.52 GB/s | 1.94 GB/s | 1.94 GB/s |
-| **this fork (default ordering, `release`)** | 13.0 µs | **2.18 GB/s** | **2.60 GB/s** | **2.63 GB/s** |
+| this fork, `readback` with the V100 in `NCCL_DRMSHARE_NOREAD` (it fetches its data itself) | 13.0 µs | 1.52 GB/s | 1.94 GB/s | 1.94 GB/s |
+| **this fork, `release`** (an opt-in since 2026-11-27: fast links only) | 13.0 µs | **2.18 GB/s** | **2.60 GB/s** | **2.63 GB/s** |
 
 The ceiling is the V100's PCIe 3.0 x4 slot with both directions busy, about 2.8 GB/s: these numbers measure the slot as
 much as the method. Two cards in faster slots move several times more (13.1 GB/s between two RTX 3090s on PCIe 4.0 x8
@@ -36,7 +38,7 @@ shared memory either way (the fork's two lanes, below).
 
 llama.cpp, Qwen3.8-27B Q8_0, `-sm tensor`, prompt 2048 tokens per second, 2 rounds each:
 
-| llama.cpp | stock NCCL | **fork (`release`)** | fork, `readback` | generation, all |
+| llama.cpp | stock NCCL | **fork (`release`)** | fork, `readback` + `NOREAD` | generation, all |
 |---|---|---|---|---|
 | plain (upstream as of 2026-11-24) | 720 | **932-933 (+29 %)** | 836 (+16 %) | 33.1-33.3 |
 | with its tensor-parallel speed-ups, `-ts 3/1 -ub 2048` (best prompts) | 974-975 | **1,017-1,028 (+5 %)** | 931-937 (-3 %, older build) | 33.7-33.8 |
@@ -44,8 +46,11 @@ llama.cpp, Qwen3.8-27B Q8_0, `-sm tensor`, prompt 2048 tokens per second, 2 roun
 | the same at `-ts 3/2`, 8k / 32k-token prompts, `readback` | 821 / 552 | | 818 / 550 | 36.0 at 8k, 34.1-34.6 at 32k |
 
 With llama.cpp's speed-ups, moving data overlaps with computing, and what counts is how little the transfer disturbs
-the GPUs as well as its speed. The `readback` ordering's fetch-and-read-back steps cost more there than they save;
-`release` (every card writes its own data, no read across) is fast enough to come out ahead.
+the GPUs as well as its speed. With the V100 fetching its own data (`NOREAD`: its copy engine then works both
+directions) `readback` cost more there than it saved; `release` (every card writes its own data, no read across) came
+out ahead. Both links in this machine are fast, where `release` is safe. `readback` without `NOREAD`, the default now,
+was not measured in this layout; on the same two cards with CPU lanes it was 0.5 % behind `release`
+([safe by default](#safe-by-default-every-pair-checked-readback-everywhere)).
 
 ## What you need
 
@@ -63,7 +68,7 @@ the GPUs as well as its speed. The `readback` ordering's fetch-and-read-back ste
 ## 1. Build the NCCL fork
 
 The fork is pinned here as `tools/nccl-drmshare` ([Cinderella-Man/nccl-drmshare](https://github.com/Cinderella-Man/nccl-drmshare),
-branch `2.32.6-drmshare`: one commit on NVIDIA's `v2.32.6-1` tag).
+branch `2.32.6-drmshare`: two commits on NVIDIA's `v2.32.6-1` tag, the transport and then its pair check and `readback` default).
 
 ```bash
 git submodule update --init --depth 1 tools/nccl-drmshare
@@ -97,7 +102,7 @@ CMake's output must say `Found NCCL`: without it llama.cpp builds without NCCL, 
 ```bash
 export LD_LIBRARY_PATH=$PWD/tools/nccl-drmshare/build/lib
 export NCCL_DRMSHARE_TRANSPORT=1
-export NCCL_DRMSHARE_SPLIT_BYTES=2097152    # 4194304 with NCCL_DRMSHARE_ORDER=readback
+export NCCL_DRMSHARE_SPLIT_BYTES=4194304    # 2097152 with NCCL_DRMSHARE_ORDER=release
 tools/llama.cpp/build-cuda/bin/llama-bench -m model.gguf -ngl 99 -sm tensor -p 2048 -n 128
 ```
 
@@ -105,8 +110,10 @@ tools/llama.cpp/build-cuda/bin/llama-bench -m model.gguf -ngl 99 -sm tensor -p 2
 |---|---|
 | `NCCL_DRMSHARE_TRANSPORT=1` | turns the transport on. With none of the `NCCL_DRMSHARE_` variables set, the fork behaves as NCCL 2.32.6 |
 | `NCCL_DRMSHARE_SPLIT_BYTES=<bytes>` | **two lanes**: all-reduces below go through NCCL's shared memory (about 13 µs for a small one), larger ones card to card. llama.cpp's generation makes about 128 small all-reduces per token; without the cut each pays the copy engine's 28-45 µs. Set it only together with `NCCL_DRMSHARE_TRANSPORT=1`: alone, it sends large transfers through NCCL's socket network |
-| `NCCL_DRMSHARE_ORDER` | `release` (the default): every card writes its own data into the other, each copy followed by Vulkan's release of that memory to the other device; reads nothing across; 98 % of the raw speed; passed the stale-step test below on the V100 + RTX 3090 and on three RTX 3090s. `readback`: after each copy, 4 bytes are read back from the destination; slower (see the tables), and correct on every pair tested. **`release` let wrong data through on two pairs: a GTX 750 Ti (Maxwell) with an RTX 3090 (2 runs in about 50) and a V100 with a GTX 1650 SUPER on a slow x1 riser (every run, up to 6.5 % of the elements); `readback` did not on either. The cause is the slow link, not the cable: a GTX 750 Ti whose port was held at 2.5 GT/s on a clean splitter cable failed with `release` in every run and was clean with it at 8 GT/s ([three-generations.md](three-generations.md#nccl-one-ring-over-three-and-four-generations)). Use `readback` on any slow link, and unless the stale-step test ([5](#5-check-that-the-results-are-right)) passes with `release` on your cards** ([Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090), [three generations](#three-generations-a-v100-a-gtx-1650-super-and-an-rtx-3090)) |
-| `NCCL_DRMSHARE_NOREAD=<bus id>` | `readback` only: a card whose memory must not be read by the other card fetches its data itself. Set it for a **Tesla V100 in a chipset slot**, which can freeze when another card reads its memory ([troubleshooting](troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)); `release` never reads across anyway. The bus id from `nvidia-smi --query-gpu=name,pci.bus_id --format=csv`, any unique part of it (`04:00`) |
+| `NCCL_DRMSHARE_ORDER` | `readback` (the default since 2026-11-27): after each copy, 4 bytes are read back from the destination (a PCIe read cannot pass the writes before it); **0 wrong on every machine and link tested, slow ones included**; 0.5 % behind `release` in llama.cpp on a V100 + RTX 3090. `release` (the default until then): every card writes its own data into the other, each copy followed by Vulkan's release of that memory to the other device; reads nothing across. **`release` lets wrong data through whenever a link that carries peer writes is slow, in this program or another one on the same machine** (a USB x1 riser, a port running at 2.5 GT/s: [safe by default](#safe-by-default-every-pair-checked-readback-everywhere)), and it did on a GTX 750 Ti behind a chipset ([Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090)). Use it only where every card's link runs at 8 GT/s and x4 or wider, and after the stale-step test ([5](#5-check-that-the-results-are-right)) passed with it on your cards; the fork warns when it sees a slow link on a pair with `release` set. `none`: no ordering, for reproducing the first version's bug only |
+| `NCCL_DRMSHARE_NOREAD=<bus id>` | `readback` only: a card whose memory must not be read by the other card fetches its data itself (slower: its copy engine then works both directions). For a **Tesla V100 in a chipset slot**, which can freeze when another card reads its memory in large bursts ([troubleshooting](troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)): `readback` reads 4 bytes per step there, far from the 1 MiB bursts that stopped it (4 and 64 KiB bursts never did), but that layout was not tested with the read-backs: set it to be sure. `release` never reads across. The bus id from `nvidia-smi --query-gpu=name,pci.bus_id --format=csv`, any unique part of it (`04:00`) |
+| `NCCL_DRMSHARE_CHECK=0` | skips the pair check's writes (each card writing 4 MiB into the other before the first connection, [safe by default](#safe-by-default-every-pair-checked-readback-everywhere)); a pair that cannot reach the other then gives wrong results instead of going through host memory |
+| `NCCL_DRMSHARE_TEST_REFUSE=<a>,<b>` | for testing the fallback: refuses the pair of CUDA devices `a` and `b` as if its check had failed |
 
 ### Faster: llama.cpp-drmshare's tensor-parallel changes
 
@@ -145,9 +152,12 @@ llama-server's speed was not measured: the numbers on this page are llama-bench'
 NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT tools/llama.cpp/build-cuda/bin/llama-bench -m model.gguf -ngl 99 -sm tensor -p 2048 -n 16 -r 1 2>&1 | grep -E 'DRMShare|via'
 ```
 
-You should see one line per card (`DRMShare: CUDA device 0 = Vulkan NVIDIA GeForce RTX 3090, copy queues: ...`) and
-connection lines `via DRM`, made at the first large all-reduce; the small lane's lines say `via SHM/direct`. No
-`via DRM` at all: check `NCCL_DRMSHARE_TRANSPORT` and that DRMShare's module is loaded.
+You should see one line per card (`DRMShare: CUDA device 0 = Vulkan NVIDIA GeForce RTX 3090, copy queues: ...`), one
+per pair of cards (`DRMShare: CUDA devices 0 (0000:2C:00.0) and 1 (0000:2D:00.0): writes and read-backs across checked
+both ways; slowest links 8.0 GT/s x4 ..., ordering readback`) and connection lines `via DRM`, made at the first large
+all-reduce; the small lane's lines say `via SHM/direct`. A pair that failed the check has a warning saying why, and
+its large-lane connections say `via SHM/direct` too. No `via DRM` at all: check `NCCL_DRMSHARE_TRANSPORT` and that
+DRMShare's module is loaded (the warnings say which).
 
 ## 5. Check that the results are right
 
@@ -184,12 +194,12 @@ test needs sm_60 and up, so build `all_reduce_perf` alone: `make -C src MPI=0 ..
   | this fork, every all-reduce card to card | 122.7 µs | 2.37 GB/s | 2.62 GB/s | 2.66 GB/s |
 
   The same as the V100 + RTX 3090 in that slot: the slot is the ceiling.
-- **But the default ordering is not safe on this card.** The back-to-back test with every all-reduce card to card
+- **`release` (the default then) was not safe on this card.** The back-to-back test with every all-reduce card to card
   (`stale_test`, fresh process each run, 3000 per size): with `release`, **wrong values twice in about 50 runs**, 64
   and 1,152 elements, each time at 64 KiB, the first all-reduces of a fresh connection, in the 750 Ti's results; with
   **`readback`, 0 wrong in 48 runs** (over 480,000 all-reduces, 59 billion elements checked). The cause is not known
-  (the 750 Ti's writes through its window seen out of order?); the V100 + RTX 3090 never showed it (above). On a
-  Maxwell card, set `NCCL_DRMSHARE_ORDER=readback` (with `NCCL_DRMSHARE_SPLIT_BYTES=4194304`, step 3).
+  (the 750 Ti's writes through its window seen out of order?); the V100 + RTX 3090 never showed it (above). This and
+  the slow-link failures made `readback` the default ([safe by default](#safe-by-default-every-pair-checked-readback-everywhere)).
 - **llama.cpp's CUDA backend runs across the pair** (llama.cpp-drmshare, `-sm tensor`): Qwen3-0.6B perplexity identical
   through the fork and through stock NCCL, chunk for chunk; Qwen3.8-27B UD-Q3_K_XL split 1:23 with MTP and DFlash2
   drafting, every answer identical through the fork and through stock NCCL. Use `-ub 512`: at 2048 the 750 Ti's 2 GB
@@ -330,6 +340,54 @@ over Turing, Ampere and Volta (`DRMShare: CUDA device 0 = Vulkan NVIDIA GeForce 
   shared-memory route at 2.4. **The fork pays off where a card's path to host memory is the bottleneck** (a card in a
   chipset slot: +29 % on the V100 + RTX 3090), **not when every card has CPU lanes**: measure both on your machine.
 
+## Safe by default: every pair checked, `readback` everywhere
+
+Since 2026-11-27 the fork does two things on its own that earlier needed the user:
+
+- **It checks every pair before using it.** Before the first connection between two cards, each card writes 4 MiB into
+  the other's memory, reads the end of it back across, and the other card checks its own memory word for word. A pair
+  that fails is named in a warning and **goes through host memory** instead: two cards behind one chipset (their writes
+  to each other vanish without an error), or a card whose memory cannot be imported (DRMShare's module not loaded).
+  This works on the two lanes' large lane (`NCCL_DRMSHARE_SPLIT_BYTES`); with every size card to card and
+  `NCCL_SHM_DISABLE=1` there is no other route, and NCCL stops with an error instead of giving wrong results.
+- **It uses `readback` for every pair.** `release` stays as an opt-in (`NCCL_DRMSHARE_ORDER=release`), for machines
+  where every card's link is fast.
+
+Tested on four cards in one machine, NVIDIA's closed 580.178.04: a GTX 1070 Ti (Pascal) behind the B550 chipset (PCIe
+3.0 x4), and an RTX 2060 (Turing), an RTX 3090 (Ampere) and a Tesla V100 (Volta) on a bifurcation splitter's CPU ports
+(PCIe 3.0 x4 each).
+
+- **The check** ran on the four pairs NCCL's ring connects, writes and read-backs both ways, all passed; it adds about
+  0.15 s per pair to the start.
+- **The fallback**: one pair refused on purpose (`NCCL_DRMSHARE_TEST_REFUSE`, a test setting): that pair's two
+  connections went `via SHM/direct`, the other six `via DRM`, 0 wrong. Every pair refused for real (DRMShare's option
+  switched off, so no card can import another's memory): the warning names the cause, everything goes through host
+  memory at stock NCCL's speed, 0 wrong. Before this change the first was a hard error at the first large all-reduce,
+  and a pair behind one chipset gave wrong results without any error.
+- **Why `readback` for every pair.** `release` goes wrong whenever any link that carries peer writes is slow, also on
+  pairs whose own links are fast. With the RTX 2060's port held at 2.5 GT/s and every other link at 8 GT/s, all
+  card to card, 64 KiB-4 MiB x 3,000, f32:
+
+  | Orderings | Wrong elements |
+  |---|---|
+  | four cards, `readback` on the 2060's two pairs, `release` on the other two | 175,296 / 90,144 / 114,204 (3 runs) |
+  | four cards, `readback` on every pair | **0 / 0 / 0** |
+  | RTX 3090 + V100 (both at 8 GT/s), `release`, while another program sends through the slow port | **25,376** |
+  | the same RTX 3090 + V100, `release`, alone | 0 |
+  | RTX 2060 + RTX 3090 (the slow pair), `release` / `readback` | 10 of 10 short runs wrong / 0 |
+
+  A program cannot see what other programs send through the machine, so no check inside the fork can make `release`
+  safe. Use it only where every card's link runs at 8 GT/s and x4 or wider and nothing sends through a slower one; with
+  `release` set on a pair whose own link is slow, the fork warns.
+- **What `readback` costs**: little. RTX 3090 + V100 on CPU lanes (x4 each), Qwen3.8-27B Q8_0, prompt 2048, tokens/s,
+  2 rounds: stock NCCL 819-831, the fork with `release` 861-862, with `readback` 856-857 (0.5 % less); generation 32.2
+  with every route; `all_reduce_perf` the same for both orderings (2.07-2.08 GB/s at 128 MiB). The 4 bytes read back
+  per step are far from what stopped a V100 behind a chipset (bursts of 1 MiB:
+  [troubleshooting](troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)).
+- **Links between bursts**: a GeForce card runs its link at 2.5 GT/s when idle. With a program running, the links in use
+  stayed at 8 GT/s through 3-second pauses (sampled four times a second), and `release` held across them (0 wrong): an
+  idle card's slow link only matters once it carries traffic.
+
 ## How it works
 
 - **The transport** (`src/transport/drmshare.cc`) follows NCCL's P2P transport in its copy-engine mode. The receiving
@@ -337,10 +395,15 @@ over Turing, Ampere and Volta (`DRMShare: CUDA device 0 = Vulkan NVIDIA GeForce 
   DRMShare, and as a file descriptor that the receiving card's CUDA maps for NCCL's kernel. The sending kernel writes
   each step into a local buffer; NCCL's proxy thread copies the step across with a copy engine, waits for its fence,
   and then raises the "data ready" mark that the receiving kernel polls.
-- **Ordering.** `release` (default): every card pushes, and each copy ends with a Vulkan queue-family release to the
-  other device. `readback`: after each copy, 4 bytes are read back from the destination (a PCIe read cannot pass the
-  writes before it); a card in `NCCL_DRMSHARE_NOREAD` fetches the data itself instead, so it is never read across.
-  Each card has two copy queues, so pushing and fetching run side by side.
+- **The pair check** (`drmsharePair`, from NCCL's `canConnect`, once per pair): each card writes 4 MiB into the other's
+  memory through DRMShare and reads the last 16 bytes back, and the receiving card copies its own memory out and
+  compares every word. A pair that fails is refused; on the large lane NCCL then tries its shared-memory transport,
+  which comes after DRMShare there. Both ends of a connection get the same answer. The links (each card's PCIe path to
+  its root port in sysfs) are read for the log, and for a warning when `release` is set on a slow one.
+- **Ordering.** `readback` (default): after each copy, 4 bytes are read back from the destination (a PCIe read cannot
+  pass the writes before it); a card in `NCCL_DRMSHARE_NOREAD` fetches the data itself instead, so it is never read
+  across. `release` (opt-in): every card pushes, and each copy ends with a Vulkan queue-family release to the other
+  device. Each card has two copy queues, so pushing and fetching run side by side.
 - **Simple protocol only.** NCCL's LL and LL128 protocols put their flags inside the data, which needs writes to land
   in order; a copy engine does not promise that. The small lane, which uses LL, stays on NCCL's shared memory.
 - **Two lanes** (`NCCL_DRMSHARE_SPLIT_BYTES`): each communicator gets a companion over the same GPUs that may use only
@@ -357,18 +420,22 @@ over Turing, Ampere and Volta (`DRMShare: CUDA device 0 = Vulkan NVIDIA GeForce 
   connection.
 - **Tested on**: a Tesla V100 + RTX 3090 and a GTX 750 Ti + RTX 3090 on NVIDIA's closed 580 (where `release` failed on
   the Maxwell card and `readback` held: [Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090)), a V100 + GTX 1650 SUPER, and
-  rings over three and four generations on 580 (Maxwell, Pascal, Volta, Turing, Ampere: [three-generations.md](three-generations.md)),
-  and three RTX 3090s on driver 615 for four hours ([above](#three-rtx-3090s-on-driver-615-a-four-hour-stress)).
+  rings over three, four and five generations on 580 (Maxwell, Pascal, Volta, Turing, Ampere: [three-generations.md](three-generations.md)),
+  and three RTX 3090s on driver 615 for four hours ([above](#three-rtx-3090s-on-driver-615-a-four-hour-stress)). The
+  pair check and the `readback` default on four of those cards ([safe by default](#safe-by-default-every-pair-checked-readback-everywhere)).
 - **Not always faster**: on cards that all have their own CPU lanes, stock NCCL through host memory was faster
   ([three generations](#three-generations-a-v100-a-gtx-1650-super-and-an-rtx-3090)); the gain comes where a card's link
   to host memory is the narrow one.
-- **Every pair of cards in the ring must carry peer traffic.** NCCL's ring uses every pair on three cards; two cards
-  behind one AMD chipset cannot reach each other ([troubleshooting](troubleshooting.md#two-cards-behind-one-amd-chipset-the-copy-finishes-nothing-arrives)),
-  so such a set of cards cannot use this transport. The fork has no way yet to keep one pair on shared memory.
+- **A pair that cannot carry peer traffic goes through host memory.** Two cards behind one AMD or Intel chipset cannot
+  reach each other ([troubleshooting](troubleshooting.md#two-cards-behind-one-amd-chipset-the-copy-finishes-nothing-arrives));
+  the pair check finds that and sends that pair through NCCL's shared memory on the large lane, the others card to
+  card. Tested with one pair refused on purpose and with every import failing; two real cards behind one chipset were
+  not in the machine for this test. With every size card to card and `NCCL_SHM_DISABLE=1`, NCCL stops with "No
+  transport found" for such a pair.
 - **Outside the Vulkan specification**: NVIDIA's Vulkan driver lists a dma-buf and an opaque file descriptor as not
   compatible for one allocation; the transport exports one allocation as both, which works on 580 (every result
   checked) but could stop working in another driver version.
 - **Copy-engine latency**: a copy across takes 28-45 µs to start and finish, so transfers below about 2 MiB are faster
   through host RAM; that is why the two lanes exist.
 - The rest of DRMShare's limits apply: the board must carry peer traffic, and a V100 in a chipset slot must not be read
-  across.
+  across in large bursts (the default `readback` reads 4 bytes per step; `NCCL_DRMSHARE_NOREAD` avoids even that).

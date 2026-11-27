@@ -58,8 +58,9 @@ behind the chipset reaches the others through the CPU). Every result checked:
 **`release` needs a fast link.** The same GTX 750 Ti + RTX 3090 with the 750 Ti's splitter port held at 2.5 GT/s (no
 riser, no chipset, the same cable): `release` gave wrong values in 20 of 20 short probes and 221,232 wrong elements in
 a full run (almost all at 64 KiB-1 MiB), `readback` 0 wrong. At 8 GT/s the same pair was clean with both. Earlier
-`release` failures on a USB x1 riser and on a card behind the chipset fit this: use `readback` on any slow link
-([nccl.md](nccl.md)). In the five-card set the GTX 1070 Ti behind the chipset passed `release` (10 probes and a full
+`release` failures on a USB x1 riser and on a card behind the chipset fit this. A later test found that a slow link
+breaks `release` even on other pairs, including another program's, so `readback` is the fork's default since
+2026-11-27 ([nccl.md](nccl.md#safe-by-default-every-pair-checked-readback-everywhere)). In the five-card set the GTX 1070 Ti behind the chipset passed `release` (10 probes and a full
 run), but one clean run says little where the GTX 750 Ti in that slot failed in 2 of 61.
 
 ## llama.cpp: Qwen3.8-27B Q8_0 across them
@@ -94,7 +95,7 @@ RTX 2060 125 W), which costs generation speed: the RTX 3090 + V100 pair alone gi
   ([nccl.md](nccl.md#three-rtx-3090s-on-driver-615-a-four-hour-stress)).
 - **The board decides**: one card at most behind an AMD or Intel chipset; cards on a USB x1 riser may need their link
   slowed ([troubleshooting](troubleshooting.md#a-card-on-a-pcie-x1-riser-falls-off-the-bus-xid-79-when-the-driver-starts-it)),
-  and a slow link needs `readback`.
+  and a slow link needs `readback` (the fork's default now).
 
 The scripts behind these runs are DRMShare's tools (`p2p_dmabuf`, `stale_test`) and nccl-tests' `all_reduce_perf`; the
 same cards on a board with two cards behind the chipset are described in
