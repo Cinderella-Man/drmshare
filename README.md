@@ -5,7 +5,8 @@
 One opt-in option in `nvidia-drm`, the part of NVIDIA's Linux driver that ships as source, lets **Vulkan** on one GPU
 import another GPU's video memory through a Linux **dma-buf**. Each card then copies straight into the other's memory
 over PCIe, instead of through host RAM. It works on pairs CUDA refuses, because they are of different generations: a
-Tesla V100 with an RTX 3090, an RTX 2060 or a GTX 1070 Ti, and an RTX 2060 with an RTX 3060. It runs on NVIDIA's own
+Tesla V100 with an RTX 3090, an RTX 2060 or a GTX 1070 Ti, a GTX 750 Ti (Maxwell) with an RTX 3090, and an RTX 2060 with
+an RTX 3060. It runs on NVIDIA's own
 drivers 580, 595 and 615, without a patched driver and without a patched `libcuda`. Vulkan programs use it directly,
 and CUDA programs that exchange data through **NCCL**, such as llama.cpp's CUDA backend, use it through an
 experimental NCCL fork, a drop-in `libnccl.so.2` ([docs/nccl.md](docs/nccl.md)).
@@ -36,8 +37,8 @@ DRMShare is for the cases where P2P is not possible or does not fit:
 
 The guide keeps the same list: [When P2P is not possible](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus#when-p2p-is-not-possible-drmshare).
 
-**Experimental.** Tested on three machines, three driver versions and six setups (five pairs, and three RTX 3090s
-together), every word of every copy checked: about 20 hours of tests so far, and a longer stress run is in progress.
+**Experimental.** Tested on three machines, three driver versions and seven setups (six pairs, and three RTX 3090s
+together), every word of every copy checked: about 21 hours of tests so far, and a longer stress run is in progress.
 One known limit: a Tesla V100 in a chipset slot can freeze when another card reads its memory while a program starts or
 stops on it ([troubleshooting](docs/troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)). The changed module is loaded by hand and gone after a reboot.
 
@@ -45,10 +46,10 @@ stops on it ([troubleshooting](docs/troubleshooting.md#a-tesla-v100-in-a-chipset
 
 | Your cards | Driver | Follow | Tested |
 |---|---|---|---|
-| Tesla V100 + a GeForce card (Volta + Ampere, Turing or Pascal), or two V100s | NVIDIA's driver 580 (the closed package: the open modules do not run Volta) | [docs/volta-dmabuf.md](docs/volta-dmabuf.md) | **works**: V100 + RTX 3090, V100 + RTX 2060, V100 + GTX 1070 Ti; two V100s |
+| Tesla V100 + a GeForce card (Volta + Ampere, Turing or Pascal), or two V100s; a Maxwell or Pascal card with a newer one | NVIDIA's driver 580 (the closed package: the open modules do not run Volta, Pascal or Maxwell) | [docs/volta-dmabuf.md](docs/volta-dmabuf.md) | **works**: V100 + RTX 3090, V100 + RTX 2060, V100 + GTX 1070 Ti; two V100s; GTX 750 Ti + RTX 3090 ([Maxwell](docs/volta-dmabuf.md#gtx-750-ti--rtx-3090-maxwell--ampere-no-v100)) |
 | Two or more cards of Turing or newer, any generations | Ubuntu's driver 615 (or 595) | [docs/dmabuf-615.md](docs/dmabuf-615.md) | **works**: RTX 2060 + RTX 3060; three RTX 3090s ([D5](docs/dmabuf-615.md#d5-three-rtx-3090s)) |
 | Another driver version (580 open modules, 590, 610, 620) | | [docs/dmabuf-drivers.md](docs/dmabuf-drivers.md) | 580 open modules **works**; 590, 610, 620: the change applies, not run |
-| NCCL between two cards CUDA cannot pair (llama.cpp's CUDA backend, other one-process NCCL programs) | 580 (V100) or 615 | [docs/nccl.md](docs/nccl.md) | **experimental**: V100 + RTX 3090; large all-reduces +44 %, llama.cpp +29 % on prompts (+5 % on top of llama.cpp's own speed-ups) |
+| NCCL between two cards CUDA cannot pair (llama.cpp's CUDA backend, other one-process NCCL programs) | 580 (V100, Maxwell) or 615 | [docs/nccl.md](docs/nccl.md) | **experimental**: V100 + RTX 3090; large all-reduces +44 %, llama.cpp +29 % on prompts (+5 % on top of llama.cpp's own speed-ups); GTX 750 Ti + RTX 3090 with `NCCL_DRMSHARE_ORDER=readback` ([Maxwell](docs/nccl.md#maxwell-a-gtx-750-ti-with-an-rtx-3090)) |
 | One model across both cards with llama.cpp | any of the above | [benchmarks/llama](benchmarks/llama/README.md), [volta-dmabuf.md V6](docs/volta-dmabuf.md#v6-llamacpp-tensor-parallel-with-an-all-reduce-through-shared-video-memory) | **works**: Qwen3.8-27B on V100 + RTX 3090, on RTX 2060 + RTX 3060 and on three RTX 3090s |
 
 Four things decide whether it works on your machine:
@@ -59,7 +60,8 @@ Four things decide whether it works on your machine:
 - **A card shares only what fits its memory window** (BAR1). RTX 30 cards and newer show all their memory with Resizable
   BAR on; a Turing card's stock 256 MB window shares buffers up to 224 MiB, and the P2P guide's
   [turing.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/turing.md) T1-T3
-  enlarge it.
+  enlarge it. Pascal and Maxwell cards (a GTX 1070 Ti, a GTX 750 Ti) keep a fixed 256 MB window: buffers of up to about
+  192-224 MiB.
 - **Programs that map a lot of video memory** (llama.cpp with Resizable BAR) need the driver's static BAR1 off,
   `RMForceStaticBar1=0`, for every card ([troubleshooting](docs/troubleshooting.md)).
 - **Where a Tesla V100 sits, if other cards read its memory.** In a slot wired through the board's chipset, a V100
@@ -77,6 +79,7 @@ Copies of 1 GiB into the first card's memory / into the second card's, every wor
 | 580, closed | Tesla V100 (PCIe 3.0 x4 chipset slot) + RTX 3090 (PCIe 4.0 x16) | **2.96 / 3.26 GB/s** | **5.62 GB/s** | **2.4 / 3.1 µs** | 2.50 / 2.79 GB/s, 17.0 / 19.5 µs |
 | 580, closed | Tesla V100 (PCIe 3.0 x4 chipset slot) + RTX 2060 (PCIe 3.0 x16) | **2.91 / 3.28 GB/s** | **5.62 GB/s** | **2.2 / 3.2 µs** | 2.27 / 2.51 GB/s, 19.9 / 21.5 µs |
 | 580, closed | Tesla V100 (PCIe 3.0 x4 chipset slot) + GTX 1070 Ti (PCIe 3.0 x16) | **2.96 / 3.28 GB/s** | **5.63 GB/s** | **1.5 / 2.2 µs** | 2.82 / 3.22 GB/s, 18.4 / 20.4 µs |
+| 580, closed | GTX 750 Ti (PCIe 3.0 x4 chipset slot) + RTX 3090 (PCIe 4.0 x16) | **2.95 / 3.28 GB/s** | **5.63 GB/s** | **2.4 / 1.9 µs** | 2.52 / 2.80 GB/s, 14.4 / 18.1 µs |
 | 580 open, 595, 615 | RTX 2060 (PCIe 3.0 x4 chipset slot) + RTX 3060 (PCIe 4.0 x16) | **2.93-2.97 / 3.18-3.28 GB/s** | **5.61-5.64 GB/s** | **1.6-2.2 / 2.7-3.1 µs** | 2.47 / 2.78 GB/s, 13.5 / 17.8 µs |
 | 615 open | RTX 3090 (PCIe 4.0 x4 chipset slot) + RTX 3090 (PCIe 4.0 x8) | **6.60 / 6.60 GB/s** | **12.84 GB/s** | **3.2 / 2.6 µs** | 4.11 / 4.02 GB/s, 18.8 / 15.5 µs |
 
@@ -145,6 +148,7 @@ every pair from this repository and from the P2P guide, side by side. The `not t
 | Tesla V100 + RTX 3090 | Volta + Ampere | **not possible**: the V100 needs the closed driver 580, and CUDA refuses peer access between two architectures (NVIDIA's `ForceP2P` key makes the kernel driver agree, but CUDA still offers no peer access, also with a patched copy of `libcuda` for 580; allowing P2P reads as well froze the machine with the V100 in a chipset slot: [volta-dmabuf.md](docs/volta-dmabuf.md#nvidias-forcep2p-key-the-kernel-says-yes-cuda-still-says-no)) | **works** on 580: 2.96 / 3.26 GB/s, 5.62 GB/s both ways, soak 20/20; llama.cpp Qwen3.8-27B identical, prompts +19 % with the V100 in the x4 chipset slot (with it in x16, host RAM is faster), while llama.cpp's CUDA backend is faster than both even through host RAM (719 against 412 tokens/s) ([volta-dmabuf.md](docs/volta-dmabuf.md)); NCCL through the experimental fork: large all-reduces +44 %, llama.cpp's CUDA backend +29 % on prompts, 1,017-1,028 tokens/s with llama.cpp-drmshare's changes ([nccl.md](docs/nccl.md)); a V100 in a chipset slot can freeze when read while a program starts or stops on it ([troubleshooting](docs/troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)) |
 | Tesla V100 + RTX 2060 | Volta + Turing | **not possible**, as above | **works** on 580: 2.91 / 3.28 GB/s, soak 20/20 (with an 8 GB window on the RTX 2060; with its stock 256 MB window, buffers up to 224 MiB) |
 | Tesla V100 + GTX 1070 Ti | Volta + Pascal | **not possible**, as above | **works** on 580: 2.96 / 3.28 GB/s, soak 20/20; the 1070 Ti shares up to 224 MiB (256 MB window) |
+| GTX 750 Ti + RTX 3090 | Maxwell + Ampere | **not possible** on 580: with NVIDIA's `ForceP2P` key allowing reads and a patched `libcuda`, CUDA says it can, but enabling peer access fails in the driver both ways (no freeze with this card) ([volta-dmabuf.md](docs/volta-dmabuf.md#nvidias-forcep2p-key-the-kernel-says-yes-cuda-still-says-no)) | **works** on 580: 2.95 / 3.28 GB/s, 5.63 GB/s both ways, soak 20/20; the 750 Ti shares up to about 192 MiB (256 MB window); llama.cpp Vulkan perplexity identical; NCCL through the fork with `readback` ordering (the default `release` let wrong data through twice in about 50 runs) ([volta-dmabuf.md](docs/volta-dmabuf.md#gtx-750-ti--rtx-3090-maxwell--ampere-no-v100), [nccl.md](docs/nccl.md#maxwell-a-gtx-750-ti-with-an-rtx-3090)) |
 | Two Tesla V100s | Volta | **works** on the stock 580 with the IOMMU in passthrough ([P2P guide](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/pascal-and-volta.md)) | **works** on 580: 1.67 / 1.63 GB/s, the same as CUDA P2P in that PCIe 2.0 x4 slot |
 | RTX 2060 + RTX 3060 | Turing + Ampere | **works with workarounds**: the P2P guide's patched driver plus a patched copy of `libcuda`, or writes through the memory window as root ([P2P guide](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/mixed-generations.md)) | **works** on 580 (open modules), 595 and 615: 2.93-2.97 / 3.18-3.28 GB/s, 5.6 GB/s both ways, soaks 10/10 and 20/20; llama.cpp Qwen3.8-27B identical, same speed ([benchmarks/llama](benchmarks/llama/README.md)) |
 | Three RTX 3090s | Ampere | **works** with the patched driver 615 | **works** on 615 (open modules): 6.60 GB/s through a x4 chipset link, 13.1-13.2 GB/s between two x8 cards, all six directions at once for over an hour, 56 TB checked, 0 wrong; llama.cpp Qwen3.8-27B identical, prompts +45 % ([dmabuf-615.md D5](docs/dmabuf-615.md#d5-three-rtx-3090s)) |
@@ -153,7 +157,7 @@ every pair from this repository and from the P2P guide, side by side. The `not t
 | Two P106-090s, in the test rig | Pascal | **works** on the stock 580 | not tested |
 | GTX 1070 Ti + RTX 2060 | Pascal + Turing | **not possible**: two architectures, and Pascal needs 580 | not tested (the V100 works with each of them) |
 | P106-090s behind the PCIe switches of a mining board | Pascal | **does not work**: the board drops the traffic | **does not work**: nothing arrives, no error ([volta-dmabuf.md](docs/volta-dmabuf.md#on-a-board-that-does-not-carry-peer-traffic)) |
-| Maxwell, Ada, Hopper, Blackwell cards | | not tested | not tested (595 and 615 run Ada, Hopper and Blackwell on the same driver code as the cards above) |
+| Ada, Hopper, Blackwell cards | | not tested | not tested (595 and 615 run Ada, Hopper and Blackwell on the same driver code as the cards above) |
 
 ## Contents
 
@@ -169,7 +173,7 @@ every pair from this repository and from the P2P guide, side by side. The `not t
 | [tools/](tools) | `p2p_dmabuf.cpp` (the Vulkan test: share, copy both ways, check every word), `staged_baseline.cu` (CUDA through host RAM, the baseline), `keep_busy.cu` (keeps a receiving card out of its idle state), `bar1_probe.cpp` (how much host-visible video memory Vulkan can map), `p2p_iomem.cu` (the P2P guide's I/O-memory route, compared in volta-dmabuf.md), `stale_test.cu` (thousands of NCCL all-reduces back to back, every element checked: [nccl.md](docs/nccl.md)); the changed `nvidia-drm` for 580 and 615, the changed llama.cpp and the NCCL fork as pinned submodules. |
 | [scripts/](scripts) | The steps as scripts, for a test machine: `drv-test.sh` (build DRMShare's `nvidia-drm` for the running driver and run every test: D1-D3 in one go), `switch-driver.sh` (another Ubuntu driver branch), `run-driver.sh` (NVIDIA's `.run` installer for branches Ubuntu does not package), `reload-nvidia.sh` (reload with driver keys, without a reboot). |
 | [patches/](patches) | `595-per-device-registry-keys.diff`: 615's per-card option lookup for driver 595 ([troubleshooting](docs/troubleshooting.md)). |
-| [docs/assets](docs/assets) | Infographics: V100 + RTX 3090, and four generations on driver 580 (`make_infographic.py`); every llama.cpp route on the V100 + RTX 3090 (`llama-routes-v100-3090.html`, the table above). |
+| [docs/assets](docs/assets) | Infographics: V100 + RTX 3090, and five generations on driver 580 (`make_infographic.py`); every llama.cpp route on the V100 + RTX 3090 (`llama-routes-v100-3090.html`, the table above). |
 
 The code lives in three forks, pinned here as submodules:
 [Cinderella-Man/open-gpu-kernel-modules](https://github.com/Cinderella-Man/open-gpu-kernel-modules), branches

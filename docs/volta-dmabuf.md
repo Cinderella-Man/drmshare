@@ -293,6 +293,37 @@ words, nothing new in the kernel log. Medians: writes 2.96 / 3.28 GB/s, reads 1.
 With this card, CUDA's copy through system memory is almost as fast for big copies; what the memory sharing adds is the
 small copy (9-12 times shorter) and the same 5.6 GB/s both ways as with the other two cards.
 
+### GTX 750 Ti + RTX 3090 (Maxwell + Ampere), no V100
+
+The same board and driver (closed 580.178.04), the V100 swapped for a **GTX 750 Ti** (GM107, Maxwell, 2 GB) in the same
+PCIe 3.0 x4 chipset slot, the RTX 3090 in the CPU slot (PCIe 4.0 x16). 580 is NVIDIA's last branch for Maxwell, and only
+its closed package runs it. The steps are this page's V1-V4, unchanged: the stock `nvidia-drm` refuses the import
+(`no common memory type`), the changed one allows it. Vulkan 1.4 on both cards.
+
+Like the GTX 1070 Ti, the 750 Ti has a fixed 256 MB window (no Resizable BAR on Maxwell), so it shares buffers of up to
+about 192-224 MiB; the 3090's own buffers have no such limit.
+
+| | Through system memory (CUDA's `cudaMemcpyPeer`) | Memory sharing |
+|---|---|---|
+| Copy RTX 3090 -> 750 Ti (192 MiB) | 2.52 GB/s | **2.95 GB/s** |
+| Copy 750 Ti -> RTX 3090 (1 GiB) | 2.80 GB/s | **3.28 GB/s** |
+| Both ways at once (writes, 192 MiB x 100 each, three rounds) | | **5.63 GB/s** (2.75 + 2.88) |
+| A 4-byte copy, 3090 -> 750 Ti / 750 Ti -> 3090 | 14.4 / 18.1 µs | **2.39 / 1.94 µs** |
+| Reads of the other card's memory | | 1.16 / 1.29 GB/s |
+
+Soak, 20 runs, one direction at a time (192 MiB of the 750 Ti's memory, 1 GiB of the 3090's): 20/20 `ALL OK`, 0 wrong
+words, nothing new in the kernel log. Medians (in the table): writes 2.95 / 3.28 GB/s, reads 1.16 / 1.29 GB/s, 4-byte
+copy 2.39 / 1.94 µs (the 750 Ti's memory / the 3090's memory).
+
+The same chipset slot gives the same speeds as with the V100: the slot is the ceiling, not the card. llama.cpp's Vulkan
+backend, Qwen3-0.6B Q8_0 split across both cards (`-sm tensor`), perplexity over 8 chunks: 20.3075 through the shared
+memory and 20.3075 through host RAM, identical chunk for chunk.
+
+CUDA programs can use it through the NCCL fork ([nccl.md](nccl.md#maxwell-a-gtx-750-ti-with-an-rtx-3090)); CUDA P2P
+for this pair does not work, also with NVIDIA's `ForceP2P` key ([below](#nvidias-forcep2p-key-the-kernel-says-yes-cuda-still-says-no)).
+As a llama.cpp partner a 750 Ti only costs speed (Qwen3.8-27B with DFlash2: 98 tokens/s on the RTX 3090 alone, 22.5
+split across both): this pair shows coverage, not a gain.
+
 ## V6. llama.cpp: tensor-parallel with an all-reduce through shared video memory
 
 llama.cpp splits a model across cards by layers (`-sm layer`) or, since recently, tensor-parallel (`-sm tensor`):
@@ -470,13 +501,27 @@ Tried on 2026-11-26, the V100 in the PCIe 3.0 x4 chipset slot:
 
 So CUDA P2P stays out for this layout. The swapped layout, the V100 in the x16 CPU slot, was not tried.
 
+Tried again on 2026-11-27 with a **GTX 750 Ti (Maxwell) in the same chipset slot** and the RTX 3090, the same keys and
+the same patched `libcuda` copy:
+
+- **Writes only** (`0x10`): as with the V100, the kernel driver says `OK`, `cudaDeviceCanAccessPeer` stays NO.
+- **Reads allowed** (`0x11`, with and without `RMPcieP2PType=1`): **no freeze** with this card (the freeze above was the
+  V100's), and with the patched `libcuda` **`cudaDeviceCanAccessPeer` says YES both ways**. But
+  `cudaDeviceEnablePeerAccess` fails both ways with `mapping of buffer object failed`, also when only the 750 Ti maps
+  the RTX 3090's memory (32 GiB window). The driver itself refuses the peer mapping between the two chips; stock
+  `libcuda` keeps saying NO.
+
+So there is no CUDA P2P between a Maxwell and an Ampere card on 580 either; the memory sharing works for that pair
+([above](#gtx-750-ti--rtx-3090-maxwell--ampere-no-v100)).
+
 ## Not tested yet
 
 - A boot install of the changed `nvidia-drm`.
 - Other GPU pairs on a board that carries peer traffic: any two NVIDIA GPUs with Vulkan on driver 580 should behave the
-  same. Data crossed between two V100s, a V100 and an RTX 3090, a V100 and an RTX 2060, and a V100 and a GTX 1070 Ti
-  (and, on driver 615, an RTX 2060 and an RTX 3060: [dmabuf-615.md](dmabuf-615.md)); two P106-090s (Pascal) imported
-  each other's memory, but on a board that carried nothing.
+  same. Data crossed between two V100s, a V100 and an RTX 3090, a V100 and an RTX 2060, a V100 and a GTX 1070 Ti,
+  and a GTX 750 Ti (Maxwell) and an RTX 3090 (and, on driver 615, an RTX 2060 and an RTX 3060:
+  [dmabuf-615.md](dmabuf-615.md)); two P106-090s (Pascal) imported each other's memory, but on a board that carried
+  nothing.
 
 ## Credits
 

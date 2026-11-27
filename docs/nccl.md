@@ -5,7 +5,8 @@
 > of llama.cpp's gain on this pair comes from llama.cpp itself, on stock NCCL (the
 > [P2P guide's llama.cpp section](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus#llamacpp-build-it-with-nccl)):
 > on top of those changes the fork adds **5 %** (974 -> 1,017-1,028 tokens/s). Tested on one pair for one evening;
-> results below.
+> results below. Also run on a GTX 750 Ti (Maxwell) + RTX 3090, where the default ordering let wrong data through:
+> on that card use `NCCL_DRMSHARE_ORDER=readback` ([Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090)).
 
 NVIDIA's NCCL moves data between GPUs for CUDA programs. Between two cards that CUDA refuses to pair, like a Tesla V100
 and an RTX 3090 (two GPU generations: no peer access), NCCL has no direct route and goes through host RAM. This page
@@ -48,11 +49,12 @@ the GPUs as well as its speed. The `readback` ordering's fetch-and-read-back ste
 ## What you need
 
 - **DRMShare working on your pair**: its `nvidia-drm` loaded with `peer_vidmem_dmabuf=1`, and its copy test passing
-  ([volta-dmabuf.md](volta-dmabuf.md) for a V100 or Pascal card, [dmabuf-615.md](dmabuf-615.md) for Turing and newer).
+  ([volta-dmabuf.md](volta-dmabuf.md) for a V100, Pascal or Maxwell card, [dmabuf-615.md](dmabuf-615.md) for Turing and newer).
   Check: `cat /sys/module/nvidia_drm/parameters/peer_vidmem_dmabuf` prints `Y`.
 - **Vulkan on both cards**: the Vulkan loader and NVIDIA's Vulkan driver (`vulkaninfo --summary` lists both GPUs), and
   the headers to build: `sudo apt install libvulkan-dev`.
-- **A CUDA toolkit that builds for both cards.** A Tesla V100 (sm_70) needs CUDA 12.x: CUDA 13 dropped Volta. Ubuntu's
+- **A CUDA toolkit that builds for both cards.** A Tesla V100 (sm_70), a Pascal card or a Maxwell card (a GTX 750 Ti is
+  sm_50) needs CUDA 12.x: CUDA 13 dropped Maxwell, Pascal and Volta. Ubuntu's
   `nvidia-cuda-toolkit` (12.4 on 26.04) works.
 - **One program that drives both GPUs from one process** (llama.cpp does). Programs with one process per GPU are not
   supported yet.
@@ -68,7 +70,8 @@ cd tools/nccl-drmshare
 make -j8 src.build NVCC_GENCODE="-gencode=arch=compute_70,code=sm_70 -gencode=arch=compute_86,code=sm_86"
 ```
 
-Put your cards' compute capabilities in `NVCC_GENCODE` (7.0 for a V100, 7.5 Turing, 8.6 RTX 30, 8.9 RTX 40). With
+Put your cards' compute capabilities in `NVCC_GENCODE` (5.0 for a GTX 750 Ti, 7.0 for a V100, 7.5 Turing, 8.6 RTX 30,
+8.9 RTX 40). With
 Ubuntu's toolkit instead of NVIDIA's (`/usr/local/cuda`), add `CUDA_HOME=/usr CUDA_LIB=/usr/lib/x86_64-linux-gnu
 CUDA_INC=/usr/include`, and `CUDARTLIB=cudart` if `/usr/lib/x86_64-linux-gnu/libcudart_static.a` is missing. To build
 only what llama.cpp uses (much faster), add `ONLY_FUNCS="AllReduce Sum f32 * *|AllReduce Sum bf16 * *|SendRecv"`.
@@ -101,7 +104,7 @@ tools/llama.cpp/build-cuda/bin/llama-bench -m model.gguf -ngl 99 -sm tensor -p 2
 |---|---|
 | `NCCL_DRMSHARE_TRANSPORT=1` | turns the transport on. With none of the `NCCL_DRMSHARE_` variables set, the fork behaves as NCCL 2.32.6 |
 | `NCCL_DRMSHARE_SPLIT_BYTES=<bytes>` | **two lanes**: all-reduces below go through NCCL's shared memory (about 13 µs for a small one), larger ones card to card. llama.cpp's generation makes about 128 small all-reduces per token; without the cut each pays the copy engine's 28-45 µs. Set it only together with `NCCL_DRMSHARE_TRANSPORT=1`: alone, it sends large transfers through NCCL's socket network |
-| `NCCL_DRMSHARE_ORDER` | `release` (the default): every card writes its own data into the other, each copy followed by Vulkan's release of that memory to the other device; reads nothing across; 98 % of the raw speed; passed the stale-step test below. `readback`: the first fixed version, slower (see the tables) |
+| `NCCL_DRMSHARE_ORDER` | `release` (the default): every card writes its own data into the other, each copy followed by Vulkan's release of that memory to the other device; reads nothing across; 98 % of the raw speed; passed the stale-step test below on the V100 + RTX 3090. `readback`: the first fixed version, slower (see the tables). **On a GTX 750 Ti (Maxwell) `release` let wrong data through, `readback` did not: use `readback` there** ([Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090)) |
 | `NCCL_DRMSHARE_NOREAD=<bus id>` | `readback` only: a card whose memory must not be read by the other card fetches its data itself. Set it for a **Tesla V100 in a chipset slot**, which can freeze when another card reads its memory ([troubleshooting](troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)); `release` never reads across anyway. The bus id from `nvidia-smi --query-gpu=name,pci.bus_id --format=csv`, any unique part of it (`04:00`) |
 
 ### Faster: llama.cpp-drmshare's tensor-parallel changes
@@ -163,6 +166,42 @@ with relaxed ordering the "data ready" mark could be seen before the data. The f
 - **llama.cpp's perplexity** with and without the `NCCL_DRMSHARE_` variables: with two cards the sums come out the same
   in either order, so every chunk should be identical.
 
+## Maxwell: a GTX 750 Ti with an RTX 3090
+
+The fork on a GTX 750 Ti (GM107, Maxwell, 2 GB, 256 MB window) in a PCIe 3.0 x4 chipset slot and an RTX 3090 (PCIe 4.0
+x16), NVIDIA's closed 580.178.04 with DRMShare's `nvidia-drm` ([volta-dmabuf.md](volta-dmabuf.md#gtx-750-ti--rtx-3090-maxwell--ampere-no-v100)),
+2026-11-27. Built with Ubuntu's CUDA 12.4 for `compute_50` + `sm_86` (NCCL builds for sm_50; nccl-tests' all-to-all
+test needs sm_60 and up, so build `all_reduce_perf` alone: `make -C src MPI=0 ... ../build/all_reduce_perf`).
+
+- **The transport comes up on the Maxwell card** (`DRMShare: CUDA device 0 = Vulkan NVIDIA GeForce GTX 750 Ti`,
+  connections `via DRM`). `all_reduce_perf`, every result checked, 0 wrong:
+
+  | | 8 B | 2 MiB | 8 MiB | 128 MiB |
+  |---|---|---|---|---|
+  | NCCL (shared memory in host RAM) | 13.7 µs | 1.75 GB/s | 1.82 GB/s | 1.85 GB/s |
+  | **this fork, two lanes** | 13.5 µs | **2.24 GB/s** | **2.62 GB/s** | **2.66 GB/s** |
+  | this fork, every all-reduce card to card | 122.7 µs | 2.37 GB/s | 2.62 GB/s | 2.66 GB/s |
+
+  The same as the V100 + RTX 3090 in that slot: the slot is the ceiling.
+- **But the default ordering is not safe on this card.** The back-to-back test with every all-reduce card to card
+  (`stale_test`, fresh process each run, 3000 per size): with `release`, **wrong values twice in about 50 runs**, 64
+  and 1,152 elements, each time at 64 KiB, the first all-reduces of a fresh connection, in the 750 Ti's results; with
+  **`readback`, 0 wrong in 48 runs** (over 480,000 all-reduces, 59 billion elements checked). The cause is not known
+  (the 750 Ti's writes through its window seen out of order?); the V100 + RTX 3090 never showed it (above). On a
+  Maxwell card, set `NCCL_DRMSHARE_ORDER=readback` (with `NCCL_DRMSHARE_SPLIT_BYTES=4194304`, step 3).
+- **llama.cpp's CUDA backend runs across the pair** (llama.cpp-drmshare, `-sm tensor`): Qwen3-0.6B perplexity identical
+  through the fork and through stock NCCL, chunk for chunk; Qwen3.8-27B UD-Q3_K_XL split 1:23 with MTP and DFlash2
+  drafting, every answer identical through the fork and through stock NCCL. Use `-ub 512`: at 2048 the 750 Ti's 2 GB
+  runs out. It is slow, though: the 750 Ti's compute holds every step back.
+
+  | Qwen3.8-27B UD-Q3_K_XL, tokens/s | RTX 3090 alone | 750 Ti + 3090, NCCL | 750 Ti + 3090, this fork |
+  |---|---|---|---|
+  | llama-bench, prompt 512 / generation | 1,533 / 47.2 | 260 / 16.7 | 280 / 16.7 |
+  | llama-server, MTP 3 | 79.3 | 19.0 | 19.0 |
+  | llama-server, DFlash2 draft | 98.3 | 22.5 | 22.5 |
+
+  A coverage result: a Maxwell card works with the fork, it does not make a 3090 faster.
+
 ## How it works
 
 - **The transport** (`src/transport/drmshare.cc`) follows NCCL's P2P transport in its copy-engine mode. The receiving
@@ -188,7 +227,8 @@ with relaxed ordering the "data ready" mark could be seen before the data. The f
 
 - **One process only.** Programs with one process per GPU (PyTorch's DDP, vLLM, most NCCL launchers) get no `via DRM`
   connection.
-- **One pair, one evening of tests**: a Tesla V100 + RTX 3090 on NVIDIA's closed 580. Turing and newer pairs on 615
+- **Two pairs on NVIDIA's closed 580**: a Tesla V100 + RTX 3090 (one evening) and a GTX 750 Ti + RTX 3090 (one morning,
+  where `release` failed and `readback` held: [Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090)). Turing and newer pairs on 615
   should work the same way (same Vulkan calls) but have not been run; more than two cards have not been run.
 - **Outside the Vulkan specification**: NVIDIA's Vulkan driver lists a dma-buf and an opaque file descriptor as not
   compatible for one allocation; the transport exports one allocation as both, which works on 580 (every result

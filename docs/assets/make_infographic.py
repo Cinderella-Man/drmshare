@@ -307,7 +307,7 @@ def page(d):
 {routes(d, t) if "routes" in d else charts(d, t)}
   <div class="foot">
     <span>{d["foot"]}</span>
-    <span><b>Cinderella-Man</b>/how-to-enable-p2p-on-nvidia-gpus</span>
+    <span><b>Cinderella-Man</b>/{d.get("repo", "how-to-enable-p2p-on-nvidia-gpus")}</span>
   </div>
 </div></body></html>
 '''
@@ -471,7 +471,9 @@ VOLTA = {
 }
 
 
-# Four generations around one Tesla V100 (docs/volta-dmabuf.md): memory sharing through a dma-buf, slate theme.
+# Five generations on driver 580 (docs/volta-dmabuf.md): three pairs around one Tesla V100, and a GTX 750 Ti (Maxwell) +
+# RTX 3090 in the same chipset slot (192 MiB into the 750 Ti, 1 GiB into the 3090; soak medians as for the others).
+# Memory sharing through a dma-buf, slate theme.
 # Copies and 4-byte delays: soak medians (20 runs per pair) vs CUDA's cudaMemcpyPeer through system memory
 # (staged_baseline.cu). "Into the V100": the other card writes into the V100's memory (1 GiB); "from the V100": the V100
 # writes into the other card's memory (1 GiB; the GTX 1070 Ti's fixed 256 MB window allows 192 MiB).
@@ -481,8 +483,8 @@ GENERATIONS = {
                  "\n  .kpis { margin-top:14px; } .kpi { padding:8px 18px; } .kpi .n { font-size:30px; }"
                  " .kpi .l { font-size:16px; margin-top:0; }"
                  "\n  .legend { margin-top:12px; } .charts { margin-top:10px; } .panel { padding:14px 22px 12px; }"
-                 "\n  .plot { margin-top:6px; } .group { gap:5px; } .gdesc:empty { display:none; }"
-                 "\n  .track, .bar { height:16px; } .val { font-size:15px; } .foot { margin-top:10px; }",
+                 "\n  .plot { margin-top:6px; } .group { gap:4px; } .group + .group { margin-top:8px; } .gdesc:empty { display:none; }"
+                 "\n  .track, .bar { height:13px; } .tracks { gap:1px; } .val { font-size:13px; line-height:13px; } .foot { margin-top:10px; }",
     "latency": [
         {"title": "From the other card into the V100's memory",
          "desc": "",
@@ -497,6 +499,12 @@ GENERATIONS = {
             ("RTX 3090", 19.5, 3.11),
             ("RTX 2060", 21.5, 3.18),
             ("GTX 1070 Ti", 20.4, 2.17),
+        ]},
+        {"title": "GTX 750 Ti (Maxwell) + RTX 3090, no V100",
+         "desc": "",
+         "max": 23, "unit": "µs", "rows": [
+            ("into the 750 Ti", 14.4, 2.39),
+            ("into the 3090", 18.1, 1.94),
         ]},
     ],
     "nccl": [
@@ -514,10 +522,16 @@ GENERATIONS = {
             ("RTX 2060", 2.51, 3.28),
             ("GTX 1070 Ti", 3.22, 3.28),
         ]},
+        {"title": "GTX 750 Ti (Maxwell) + RTX 3090, no V100",
+         "desc": "",
+         "max": 3.6, "unit": "GB/s", "rows": [
+            ("into the 750 Ti", 2.52, 2.95),
+            ("into the 3090", 2.80, 3.28),
+        ]},
     ],
     "kpis": [
-        ("4 generations", "Pascal, Volta, Turing, Ampere"),
-        ("0 errors", "60 soak runs, every word checked"),
+        ("5 generations", "Maxwell, Pascal, Volta, Turing, Ampere"),
+        ("0 errors", "80 soak runs, every word checked"),
         ("5.6 GB/s", "both ways at once, every pair"),
         ("6–12×", "less delay on a small copy"),
     ],
@@ -528,9 +542,10 @@ GENERATIONS = {
     ],
     "added": "<b>Here:</b> one opt-in nvidia-drm option (127 lines), and the USB-C step that lets the 2060's window grow. "
              "No NVIDIA binary modified.",
+    "repo": "drmshare",
     "families_label": "DRIVER 580",
     "families": [
-        ("Maxwell", None),
+        ("Maxwell", "GTX 750 Ti"),
         ("Pascal", "GTX 1070 Ti"),
         ("Volta", "Tesla V100"),
         ("Turing", "RTX 2060"),
@@ -541,15 +556,15 @@ GENERATIONS = {
     ],
     "legend": ("Through system memory (what CUDA does for these pairs)",
                "Shared video memory: straight into the other card"),
-    "page_title": "Four generations memory sharing infographic",
-    "eyebrow": "UBUNTU 26.04 · NVIDIA DRIVER 580 · FOUR GENERATIONS · EXPERIMENTAL",
-    "h1": 'Memory <span class="a">sharing</span> across four GPU generations',
-    "sub": "A Tesla V100 shares video memory with a GTX 1070 Ti, an RTX 2060 and an RTX 3090: pairs CUDA refuses to connect.",
+    "page_title": "Five generations memory sharing infographic",
+    "eyebrow": "UBUNTU 26.04 · NVIDIA DRIVER 580 · FIVE GENERATIONS · EXPERIMENTAL",
+    "h1": 'Memory <span class="a">sharing</span> across five GPU generations',
+    "sub": "A Tesla V100 shares video memory with a GTX 1070 Ti, an RTX 2060 and an RTX 3090, a GTX 750 Ti with an RTX 3090: pairs CUDA refuses to connect.",
     "latency_ptitle": "Delay",
     "latency_psub": "a 4-byte copy timed on the GPU · microseconds, lower is better",
     "nccl_ptitle": "Speed",
     "nccl_psub": "GB/s, one direction at a time · higher is better",
-    "foot": "Not CUDA P2P: Vulkan programs only. The V100's PCIe 3.0 x4 chipset slot caps every pair.",
+    "foot": "Not CUDA P2P: Vulkan programs only. The PCIe 3.0 x4 chipset slot (the V100's, then the 750 Ti's) caps every pair.",
 }
 
 

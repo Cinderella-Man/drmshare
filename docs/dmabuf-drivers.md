@@ -9,7 +9,7 @@ programs only ([what this is, and what it is not](volta-dmabuf.md#what-this-is-a
 
 | Branch | On Ubuntu 26.04 | Change to use | Tested here |
 |---|---|---|---|
-| 580 | `nvidia-driver-580` (closed) and `nvidia-driver-580-open`, 580.178.04 | 580 version: branch `580-peer-vidmem-dmabuf` ([`9904ca0`](https://github.com/Cinderella-Man/open-gpu-kernel-modules/commit/9904ca03caa2d1e133715fd902e503961d000eaa)) | **works**: closed package with a Tesla V100 and an RTX 3090, an RTX 2060 or a GTX 1070 Ti, and two V100s; open modules (`nvidia-driver-580-open`) with an RTX 2060 + RTX 3060 |
+| 580 | `nvidia-driver-580` (closed) and `nvidia-driver-580-open`, 580.178.04 | 580 version: branch `580-peer-vidmem-dmabuf` ([`9904ca0`](https://github.com/Cinderella-Man/open-gpu-kernel-modules/commit/9904ca03caa2d1e133715fd902e503961d000eaa)) | **works**: closed package with a Tesla V100 and an RTX 3090, an RTX 2060 or a GTX 1070 Ti, two V100s, and a GTX 750 Ti (Maxwell) with an RTX 3090; open modules (`nvidia-driver-580-open`) with an RTX 2060 + RTX 3060 |
 | 590 | none: Ubuntu's 590 packages install 595; NVIDIA's `.run` 590.48.01 | 580 version (590 has no GC6 guard either) | source only: the change applies |
 | 595 | `nvidia-driver-595-open`, 595.99.02 | 615 version: branch `615-peer-vidmem-dmabuf` ([`9616483`](https://github.com/Cinderella-Man/open-gpu-kernel-modules/commit/9616483fb515ed5ec93c7499fdda9d5e882c747f)) | **works**: RTX 2060 + RTX 3060 |
 | 610 | none: Ubuntu's 610 packages install 615; NVIDIA's `.run` and apt repository, 610.57.04 | 615 version | source only: the change applies |
