@@ -104,7 +104,7 @@ tools/llama.cpp/build-cuda/bin/llama-bench -m model.gguf -ngl 99 -sm tensor -p 2
 |---|---|
 | `NCCL_DRMSHARE_TRANSPORT=1` | turns the transport on. With none of the `NCCL_DRMSHARE_` variables set, the fork behaves as NCCL 2.32.6 |
 | `NCCL_DRMSHARE_SPLIT_BYTES=<bytes>` | **two lanes**: all-reduces below go through NCCL's shared memory (about 13 µs for a small one), larger ones card to card. llama.cpp's generation makes about 128 small all-reduces per token; without the cut each pays the copy engine's 28-45 µs. Set it only together with `NCCL_DRMSHARE_TRANSPORT=1`: alone, it sends large transfers through NCCL's socket network |
-| `NCCL_DRMSHARE_ORDER` | `release` (the default): every card writes its own data into the other, each copy followed by Vulkan's release of that memory to the other device; reads nothing across; 98 % of the raw speed; passed the stale-step test below on the V100 + RTX 3090. `readback`: the first fixed version, slower (see the tables). **On a GTX 750 Ti (Maxwell) `release` let wrong data through, `readback` did not: use `readback` there** ([Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090)) |
+| `NCCL_DRMSHARE_ORDER` | `release` (the default): every card writes its own data into the other, each copy followed by Vulkan's release of that memory to the other device; reads nothing across; 98 % of the raw speed; passed the stale-step test below on the V100 + RTX 3090 and on three RTX 3090s. `readback`: after each copy, 4 bytes are read back from the destination; slower (see the tables), and correct on every pair tested. **`release` let wrong data through on two pairs: a GTX 750 Ti (Maxwell) with an RTX 3090 (2 runs in about 50) and a V100 with a GTX 1650 SUPER on a slow x1 riser (every run, up to 6.5 % of the elements); `readback` did not on either. Use `readback` unless the stale-step test ([5](#5-check-that-the-results-are-right)) passes with `release` on your cards** ([Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090), [three generations](#three-generations-a-v100-a-gtx-1650-super-and-an-rtx-3090)) |
 | `NCCL_DRMSHARE_NOREAD=<bus id>` | `readback` only: a card whose memory must not be read by the other card fetches its data itself. Set it for a **Tesla V100 in a chipset slot**, which can freeze when another card reads its memory ([troubleshooting](troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)); `release` never reads across anyway. The bus id from `nvidia-smi --query-gpu=name,pci.bus_id --format=csv`, any unique part of it (`04:00`) |
 
 ### Faster: llama.cpp-drmshare's tensor-parallel changes
@@ -202,6 +202,108 @@ test needs sm_60 and up, so build `all_reduce_perf` alone: `make -C src MPI=0 ..
 
   A coverage result: a Maxwell card works with the fork, it does not make a 3090 faster.
 
+## Three RTX 3090s on driver 615: a four-hour stress
+
+The fork's first run beyond two cards, and its first on driver 615: three RTX 3090s (one in a PCIe 4.0 x4 chipset slot,
+two on PCIe 4.0 x8 CPU lanes, 250 W caps) on Ubuntu's stock `nvidia.ko` 615.71.09 with DRMShare's 615 `nvidia-drm`
+([dmabuf-615.md](dmabuf-615.md)), no CUDA P2P, 2026-11-27. NCCL builds a ring 0 -> 1 -> 2 -> 0 `via DRM`, the chipset
+card included. llama.cpp-drmshare with Qwen3.8-27B Q8_0 and Qwen3.8-Flash-Next IQ3_S, `llama-server` sessions of six
+requests (one of them an 8,000-token prompt), temperature 0, every answer compared byte for byte; 4 h 12 min:
+
+| Setting | Sessions | Generation, tokens/s | Answers vs stock NCCL |
+|---|---|---|---|
+| 27B, MTP 3 (its own nextn layer), two lanes | 11 | 85.1-85.5 | **132 of 132 identical** |
+| 27B, plain, two lanes | 11 | 49.8-50.0 | **132 of 132 identical** |
+| 27B, DFlash2 draft (7 tokens), tensor split, two lanes | 10 | 89.4-89.6 | identical (control) |
+| Flash-Next, plain, two lanes | 12 | 70.1-70.2 | **144 of 144 identical** |
+| Flash-Next, DFlash2 draft (3), tensor split, two lanes | 12 | 114.0-114.2 | **144 of 144 identical** |
+| every all-reduce card to card (both models) | 23 | 43.8-46.5 | differ (see below) |
+
+- **No failure** in 95 sessions (the 96th was the DFlash2 attempt before the draft fix below), no hang, nothing in the
+  kernel log (Xid, PCIe errors, `nvidia-drm` errors, GSP timeouts). Every session repeated its setting's first answers
+  byte for byte (1,140 answers).
+- **The back-to-back test** (`stale_test` for N cards, every element of every all-reduce checked on the GPU, card to card
+  64 KiB-4 MiB and the two lanes 1-16 MiB, f32 and bf16): about 1.66 million all-reduces, 6.37 trillion elements,
+  **0 wrong**. Perplexity over 16 chunks identical to stock NCCL chunk for chunk, both models.
+- **Speed**: 27B prompts (`llama-bench -sm tensor -ub 2048`) **1,814 tokens/s against 1,492 with stock NCCL (+22 %)**,
+  96 % of real CUDA P2P on the same cards (1,880-1,891); generation the same as stock (51.3: the shared-memory lane).
+  Long prompts in the server +16-18 % on the 27B, +6-7 % on Flash-Next (a mixture of experts: less all-reduce per token
+  of compute).
+- **Every all-reduce card to card** (`NCCL_SHM_DISABLE=1 NCCL_NET_DISABLE_INTRA=1 NCCL_PROTO=Simple`) costs 37-46 % of
+  generation (the copy engine's latency per small transfer), so keep the two lanes on three cards too. Its answers
+  differ from stock NCCL's default, yet are identical to stock NCCL forced to the same Simple protocol (6 of 6 on each
+  model): the protocol sums in another order; the data arrives intact.
+- **DFlash2 with `-sm tensor`** needs a draft with its own token embeddings and output head. A draft without them
+  borrows the target's, which tensor split cuts by vocabulary across the cards, and llama.cpp aborts
+  (`ggml-backend-meta.cpp:578`). [`scripts/dflash_add_head.py`](../scripts/dflash_add_head.py) copies the two tensors
+  from the target into the draft (pure Python, byte for byte); then run the draft on one card (`-devd CUDA1`) with
+  `LLAMA_DFLASH_DEV=0` (the target's hidden states reach the draft by host copies).
+
+## The V100 + RTX 3090 with the slots swapped
+
+The numbers above for this pair are with the V100 in the PCIe 3.0 x4 chipset slot and the RTX 3090 in the x16 CPU
+slot. A reader asked for the other way round: the RTX 3090 in the chipset slot, the V100 in the CPU slot (PCIe 3.0
+x16). Same scripts, builds and settings, Qwen3.8-27B Q8_0, tokens/s, prompt 2048 / generation:
+
+![Tesla V100 + RTX 3090, llama.cpp routes in both slot layouts (prompt 2048 / generation, tokens/s). V100 x4 and RTX 3090 x16 against RTX 3090 x4 and V100 x16: 1 Vulkan through host RAM 347 / 27.9 against 474 / 30.2; 2 Vulkan + DRMShare 412 / 28.9 against 388 / 30.3; 3 CUDA, llama.cpp's own all-reduce 647 / 34.7 against 787 / 36.2; 4 CUDA + NCCL 720 / 33.2 against 878 / 35.2; 5 CUDA + this fork 932 / 33.1 against 926 / 35.2; 6 llama.cpp-drmshare's changes with NCCL, -ts 3/1, 974-984 / 33.8 against 992-1,037 / 31.6; 7 the same with this fork 1,017-1,028 / 33.7 against 1,033-1,040 / 31.6; 8 the changes at -ts 3/2 925 / 37.3 against 1,035-1,040 / 36.2](assets/llama-routes-v100-3090-swapped.png)
+
+- **Every route through host RAM gains** (+22-37 % on prompts): the V100, the slower card, now moves its data over
+  x16. Routes that copy card to card still cross the RTX 3090's x4 link, so they gain nothing, and **this fork's lead
+  over stock NCCL shrinks from +29 % to +5 % or less**.
+- **Best in this layout: llama.cpp-drmshare's changes with stock NCCL at `-ts 3/2`, about 1,038 / 36.2**, one setting
+  for prompts and chat. Perplexity: the fork identical to stock NCCL chunk for chunk, in both layouts.
+- So with a V100 and a GeForce card: put the V100 in the x16 slot if you can, and use stock NCCL; the fork pays off
+  when the slower card has to sit behind the narrow link.
+
+## Three generations: a V100, a GTX 1650 SUPER and an RTX 3090
+
+One machine, NVIDIA's closed 580.178.04 with DRMShare's `nvidia-drm`, 2026-11-27: a Tesla V100 (Volta) in the CPU slot
+(PCIe 3.0 x16), an RTX 3090 (Ampere) in the chipset's x16-size slot (PCIe 3.0 x4), and a GTX 1650 SUPER (Turing, TU116,
+4 GB) on a USB-cable x1 riser in a chipset x1 slot, held at 2.5 GT/s
+([troubleshooting](troubleshooting.md#a-card-on-a-pcie-x1-riser-falls-off-the-bus-xid-79-when-the-driver-starts-it)),
+so about 0.25 GB/s each way. Built with Ubuntu's CUDA 12.4 for `sm_70;75;86`.
+
+**The fork cannot run all three here.** NCCL's ring on three cards uses every pair, and the RTX 3090 and the GTX 1650
+SUPER, both behind the chipset, cannot reach each other at all
+([troubleshooting](troubleshooting.md#two-cards-behind-one-amd-chipset-the-copy-finishes-nothing-arrives)). With all
+three cards, use stock NCCL (shared host memory), which never needs one card to reach another.
+
+**On the V100 + GTX 1650 SUPER pair** (both reached through the CPU; `CUDA_VISIBLE_DEVICES` hiding the 3090):
+
+- The transport comes up (`DRMShare: CUDA device 0 = Vulkan NVIDIA GeForce GTX 1650 SUPER`, connections `via DRM`).
+- **`release` ordering let wrong values through on every run**: up to 6.5 % of the elements at 64-256 KiB, on both
+  cards. **`readback`: 0 wrong** in every check below. A likely reason is the slow link, which widens the gap between
+  the data landing and the "data ready" mark; the V100 + RTX 3090 at x4 never showed it.
+- With `NCCL_DRMSHARE_ORDER=readback` and `NCCL_DRMSHARE_SPLIT_BYTES=4194304`: the back-to-back test card to card
+  (64 KiB-4 MiB x 3,000) and through the two lanes (4-16 MiB x 300), f32 and bf16, **0 wrong**; `all_reduce_perf`
+  with every result checked, 0 wrong (0.13 GB/s for stock NCCL, 0.18-0.19 GB/s for the fork: the riser's limit).
+- llama.cpp-drmshare, Qwen3.8-27B UD-Q3_K_XL split 1:11 (the 1650 SUPER's 4 GB): perplexity **identical** to stock NCCL
+  chunk for chunk; `llama-server` with MTP 3 and with a DFlash2 draft, **every answer identical** to stock NCCL (5 of 5
+  each, with the same drafted and accepted counts).
+
+  | Tokens/s, prompt 2048 / generation | V100 alone | V100 + 1650 SUPER, NCCL | V100 + 1650 SUPER, this fork |
+  |---|---|---|---|
+  | llama-bench | 715 / 33.9 | 80 / 21.5 | **105 / 21.5** |
+  | llama-server, MTP 3 | | 19.9 | 19.9 |
+  | llama-server, DFlash2 draft | | 23.5 | 23.4 |
+
+  The fork is 32 % ahead of stock NCCL on prompts, but any split over a 0.25 GB/s riser is far slower than the V100
+  alone: like the GTX 750 Ti, a coverage result.
+
+**All three generations in one llama.cpp process** (stock NCCL through host memory for CUDA, host RAM for Vulkan; the
+RTX 3090 at its stock 350 W), Qwen3.8-27B Q8_0, tokens/s, prompt 2048 / generation:
+
+| Route | RTX 3090 + V100 | RTX 3090 + GTX 1650 SUPER + V100 |
+|---|---|---|
+| CUDA + NCCL, tensor split (`-ts 12/15`, `12/1/15`) | 844 / 33.1 | 75 / 19.1 |
+| CUDA, layer split | 1,268 / 25.3 | 558 / 22.9 |
+| Vulkan through host RAM, tensor split | 441 / 29.0 | 47 / 13.2 |
+| Vulkan, layer split | | 468 / 9.0 |
+
+It runs, and the answers hold: perplexity over 8 chunks 5.9998 on three cards against 5.9984 on two (CUDA; another
+order of summing), 6.0008 on Vulkan; nothing in the kernel log. The third card only costs speed here, because every
+all-reduce waits for its 0.25 GB/s riser; an outside report on an Intel board found three cards slower than two as well.
+
 ## How it works
 
 - **The transport** (`src/transport/drmshare.cc`) follows NCCL's P2P transport in its copy-engine mode. The receiving
@@ -227,9 +329,12 @@ test needs sm_60 and up, so build `all_reduce_perf` alone: `make -C src MPI=0 ..
 
 - **One process only.** Programs with one process per GPU (PyTorch's DDP, vLLM, most NCCL launchers) get no `via DRM`
   connection.
-- **Two pairs on NVIDIA's closed 580**: a Tesla V100 + RTX 3090 (one evening) and a GTX 750 Ti + RTX 3090 (one morning,
-  where `release` failed and `readback` held: [Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090)). Turing and newer pairs on 615
-  should work the same way (same Vulkan calls) but have not been run; more than two cards have not been run.
+- **Tested on**: a Tesla V100 + RTX 3090 and a GTX 750 Ti + RTX 3090 on NVIDIA's closed 580 (where `release` failed on
+  the Maxwell card and `readback` held: [Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090)), and three RTX 3090s on
+  driver 615 for four hours ([above](#three-rtx-3090s-on-driver-615-a-four-hour-stress)).
+- **Every pair of cards in the ring must carry peer traffic.** NCCL's ring uses every pair on three cards; two cards
+  behind one AMD chipset cannot reach each other ([troubleshooting](troubleshooting.md#two-cards-behind-one-amd-chipset-the-copy-finishes-nothing-arrives)),
+  so such a set of cards cannot use this transport. The fork has no way yet to keep one pair on shared memory.
 - **Outside the Vulkan specification**: NVIDIA's Vulkan driver lists a dma-buf and an opaque file descriptor as not
   compatible for one allocation; the transport exports one allocation as both, which works on 580 (every result
   checked) but could stop working in another driver version.

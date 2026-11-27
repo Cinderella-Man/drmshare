@@ -58,6 +58,11 @@ the open half calls it through 222 different remote procedure calls. Adding Volt
 work for Volta on the CPU, and NVIDIA never published the Volta power-management firmware, so such a port would likely
 stay at the card's start-up clocks. NVIDIA's CUDA library also dropped Volta after branch 580. Not realistic.
 
+Nor would it be faster. Measured on three RTX 3090s (Qwen3.8-27B Q8_0, llama.cpp with stock NCCL, 2026-11-27): driver
+615 open, 615 closed with the GSP on and off, 580 closed with the GSP on and off are all within 0.5 % of each other
+(tensor split 1,484-1,490 tokens/s on 2048-token prompts, 51.0-51.2 generating), with byte-identical answers. 580 with
+the GSP off is the situation a V100 is always in, and it is as fast as the rest.
+
 NVIDIA's closed 580 driver runs both cards. Its core is a binary, but two parts of it are source: the interface layer
 of `nvidia.ko` and the whole of `nvidia-drm`. That is enough. For cards that driver 615 supports (Turing and newer), the
 same option exists for 615, tested on an RTX 2060 + RTX 3060: [dmabuf-615.md](dmabuf-615.md). Every driver version
@@ -324,6 +329,36 @@ for this pair does not work, also with NVIDIA's `ForceP2P` key ([below](#nvidias
 As a llama.cpp partner a 750 Ti only costs speed (Qwen3.8-27B with DFlash2: 98 tokens/s on the RTX 3090 alone, 22.5
 split across both): this pair shows coverage, not a gain.
 
+### V100 + GTX 1650 SUPER (Volta + Turing TU116), three cards in one machine
+
+The same board and driver, three generations at once (2026-11-27): the V100 in the CPU slot (PCIe 3.0 x16), an RTX 3090
+in the chipset's x16-size slot (PCIe 3.0 x4), and a **GTX 1650 SUPER** (TU116, 4 GB, its window 256 MB at most) on a
+USB-cable riser in one of the chipset's x1 slots. Two things to know about that setup first:
+
+- **The riser needs the link held at 2.5 GT/s**, or the card falls off the bus when the driver starts it
+  ([troubleshooting](troubleshooting.md#a-card-on-a-pcie-x1-riser-falls-off-the-bus-xid-79-when-the-driver-starts-it)).
+  At 2.5 GT/s x1 it carries about 0.25 GB/s each way, and that is the ceiling for everything below with this card.
+- **The RTX 3090 and the GTX 1650 SUPER cannot share memory with each other**: both sit behind the chipset, which does
+  not pass traffic between its own slots
+  ([troubleshooting](troubleshooting.md#two-cards-behind-one-amd-chipset-the-copy-finishes-nothing-arrives)). The V100,
+  on the CPU's lanes, works with each of them.
+
+The default driver load (the GSP on for the two newer cards), 64 MiB, every word checked:
+
+| Direction | Copies into the other card | Reads from it |
+|---|---|---|
+| V100's memory, 1650 SUPER's copy engine | 0.21 GB/s | 0.19 GB/s |
+| 1650 SUPER's memory, V100's copy engine | 0.21 GB/s | 0.20 GB/s |
+| V100's memory, 3090's copy engine | 3.27 GB/s | 2.57 GB/s |
+| 3090's memory, V100's copy engine | 2.96 GB/s | 1.12 GB/s |
+
+All four directions at once for 60 seconds, 64 MiB blocks with random pauses: **0 wrong in 47.9 GB checked** (0.90 +
+1.95 GB/s on the 3090 pair, 0.17 + 0.20 GB/s on the 1650 SUPER pair), nothing in the kernel log. The first TU116 with
+DRMShare: it works, at whatever its link carries.
+
+The NCCL fork on the V100 + GTX 1650 SUPER, and llama.cpp across all three cards:
+[nccl.md](nccl.md#three-generations-a-v100-a-gtx-1650-super-and-an-rtx-3090).
+
 ## V6. llama.cpp: tensor-parallel with an all-reduce through shared video memory
 
 llama.cpp splits a model across cards by layers (`-sm layer`) or, since recently, tensor-parallel (`-sm tensor`):
@@ -450,10 +485,18 @@ engine "finished" (0.21 GB/s) and nothing arrived, on every path, with nothing i
 PCIe error, no GPU error. So run [V4](#v4-test-each-card-writes-and-reads-the-others-memory)'s test, which checks every
 word, on every new board before trusting it. What is known per board: [boards.md](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/blob/main/docs/boards.md).
 
+**Two cards behind one AMD chipset** fail the same silent way on the test rig's B550 board: the chipset's ports answer a
+request from one of its slots to another with Unsupported Request, so every word of the copy is lost, while each of the
+two cards shares memory with a card in the CPU slot without a single wrong word. With the IOMMU translating, the traffic
+goes to the CPU and back down instead and jams the chipset. Details and the error registers that show it:
+[troubleshooting](troubleshooting.md#two-cards-behind-one-amd-chipset-the-copy-finishes-nothing-arrives). At most one
+card behind such a chipset; more cards need CPU lanes.
+
 ## Limits
 
 - **Needs a board that carries peer traffic**, like CUDA P2P. On a mining board with PCIe switches nothing arrived,
-  and nothing said so ([above](#on-a-board-that-does-not-carry-peer-traffic)).
+  and nothing said so ([above](#on-a-board-that-does-not-carry-peer-traffic)); between two cards behind the same AMD
+  B550 chipset neither ([troubleshooting](troubleshooting.md#two-cards-behind-one-amd-chipset-the-copy-finishes-nothing-arrives)).
 - **Vulkan only.** CUDA on the closed 580 driver cannot import a dma-buf, and memory Vulkan imported this way cannot
   be handed on to CUDA. NCCL, PyTorch and vLLM do not see this route.
 - **Loaded by hand.** `nvidia-drm` with the option is not installed; a reboot returns to the stock module. A boot install
@@ -499,7 +542,10 @@ Tried on 2026-11-26, the V100 in the PCIe 3.0 x4 chipset slot:
   in the table above, `0x11` without `RMPcieP2PType=1`, had loaded without trouble. Do not try this with a V100 in a
   chipset slot.
 
-So CUDA P2P stays out for this layout. The swapped layout, the V100 in the x16 CPU slot, was not tried.
+So CUDA P2P stays out for this layout. **The swapped layout froze too** (2026-11-27): with the V100 in the x16 CPU slot
+and the RTX 3090 in the chipset slot, `ForceP2P=0x11;RMPcieP2PType=1` froze the machine within seconds again, while the
+driver was being loaded with the key (the files on disk stop at the start of that load). Do not try reads-allowed
+`ForceP2P` with a V100 on such a board, in either slot.
 
 Tried again on 2026-11-27 with a **GTX 750 Ti (Maxwell) in the same chipset slot** and the RTX 3090, the same keys and
 the same patched `libcuda` copy:
@@ -519,7 +565,7 @@ So there is no CUDA P2P between a Maxwell and an Ampere card on 580 either; the 
 - A boot install of the changed `nvidia-drm`.
 - Other GPU pairs on a board that carries peer traffic: any two NVIDIA GPUs with Vulkan on driver 580 should behave the
   same. Data crossed between two V100s, a V100 and an RTX 3090, a V100 and an RTX 2060, a V100 and a GTX 1070 Ti,
-  and a GTX 750 Ti (Maxwell) and an RTX 3090 (and, on driver 615, an RTX 2060 and an RTX 3060:
+  a V100 and a GTX 1650 SUPER, and a GTX 750 Ti (Maxwell) and an RTX 3090 (and, on driver 615, an RTX 2060 and an RTX 3060:
   [dmabuf-615.md](dmabuf-615.md)); two P106-090s (Pascal) imported each other's memory, but on a board that carried
   nothing.
 

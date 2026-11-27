@@ -47,6 +47,88 @@ queue behind the other card's read requests in the chipset's PCIe switch until t
 It happens inside NVIDIA's closed driver and the card's firmware, so the `nvidia-drm` change cannot fix it. Without
 memory sharing nothing reads the V100's memory this way: CUDA P2P on these cards did not trigger it.
 
+## Two cards behind one AMD chipset: the copy finishes, nothing arrives
+
+Seen on the test rig's B550 board (driver 580, closed) with an RTX 3090 in the chipset's x16 slot (PCIe 3.0 x4) and a
+GTX 1650 SUPER in one of its x1 slots, a Tesla V100 in the CPU slot. [V4](volta-dmabuf.md#v4-test-each-card-writes-and-reads-the-others-memory)'s
+test, 1 MiB, every word checked:
+
+| Pair | Path between the cards | Writes | Reads |
+|---|---|---|---|
+| V100 and GTX 1650 SUPER, both ways | through the CPU | 0 wrong (0.21 GB/s, the x1 link's limit) | 0 wrong |
+| V100 and RTX 3090, both ways | through the CPU | 0 wrong (2.9-3.4 GB/s) | 0 wrong |
+| RTX 3090 and GTX 1650 SUPER, both ways | **both behind the chipset** | **every word wrong** | **every word wrong** (0.00 GB/s) |
+
+**Symptom:** the import works and the copy engine reports the copy done, but nothing lands, with nothing in the kernel
+log. With the driver's GSP firmware on (the default for Turing and newer), the card waiting for the reads can stop
+answering instead: `Xid 119` (`Timeout after 45s of waiting for RPC response from GPU GSP`) three times, then `Xid 154`
+(`GPU Reset Required`); it needs a reboot. On this AMD board the card that does the copying logs a PCIe Completion
+Timeout and a Malformed TLP in its error registers (`lspci -vvv`, `UESta`). On an Intel Z390 (outside report, below)
+nothing is recorded at all: the firmware keeps AER from Linux, and even the raw registers of the chipset's ports and
+the cards latch nothing. Only a check of the data shows it.
+
+**Cause:** the chipset's own ports refuse requests from one of its slots to another. The header of the logged packet
+(`ECAP_AER+0x1c`) is a completion with status Unsupported Request, sent by the copying card's own chipset port. Reads
+get that answer; writes, which get no answer, are dropped the same way. Requests that leave the chipset toward the CPU
+are passed on, which is why every pair through the CPU works. The chipset's ports have no ACS, so there is no switch to
+turn this on. With the IOMMU translating instead of in passthrough mode (`iommu=pt` dropped) the request does leave the
+chipset, and the CPU sends it back down: the chipset then jammed for 2.5 minutes (network included) until the RTX 3090
+halted (`Xid 62`), and in the other direction the machine hung until a power cycle. Not a route either.
+
+**What to do:** at most one card behind an AMD chipset; the others on CPU lanes (for more than one CPU slot's worth, a
+bifurcation splitter in the CPU slot, with the board's lane setting to match). Test every new pair with V4's test,
+which checks every word: a program that does not check would compute with wrong data. CUDA P2P fails the same way:
+an outside report on an Intel Z390 with three RTX A2000s (CUDA P2P on the stock driver) lost every write between the
+two cards on the chipset's root ports, while `nvidia-smi topo -p2p r` said `OK` and every pair with the CPU-port card
+was byte-exact ([the P2P guide's issue #5](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus/issues/5)).
+
+## A card on a PCIe x1 riser falls off the bus (Xid 79) when the driver starts it
+
+Seen with a GTX 1650 SUPER on a USB-cable x1 riser (the mining kind) in a chipset x1 slot of the test rig's B550 board,
+driver 580.
+
+**Symptom:** the card shows up at boot, linked at 2.5 GT/s x1; about 4 seconds after the driver loads, `NVRM: Xid
+(PCI:...): 79, GPU has fallen off the bus`, then `RmInitAdapter failed` over and over. Every access to the dead card
+stalls a CPU core (`pci_pme_list_scan hogged CPU`, clock-watchdog warnings), `nvidia-smi` and `lspci` hang, and about
+90 seconds after boot the whole machine stops answering. The card's port cannot be read either once the card is gone,
+so the link cannot be fixed from Linux after the fact.
+
+**Cause:** cards idle at 2.5 GT/s and the driver raises the link speed when it starts the card; the riser does not carry
+8 GT/s.
+
+**What to do:** keep the link at 2.5 GT/s from the start. Some boards have a per-slot speed setting; the test rig's
+B550 only has one for the CPU slot and a "Chipset Gen Switch", which set the CPU-to-chipset link to 2.5 GT/s instead
+(and the board then did not set up its chipset slots at all: the cards behind it disappeared). What worked is a
+one-shot service that, before the driver loads, sets the Target Link Speed of the port above every NVIDIA card on an
+x1 link to 2.5 GT/s and retrains the link: [`scripts/x1-riser-gen1.sh`](../scripts/x1-riser-gen1.sh) with
+[`scripts/x1-riser-gen1.service`](../scripts/x1-riser-gen1.service). With it the card started cleanly at every boot
+(2.5 GT/s x1, about 0.25 GB/s each way). The same riser at each speed (the cap set before the driver starts the card:
+raised later, it is not used):
+
+| Cap | Driver start | Copies, each way | Every word checked | The riser link's correctable errors |
+|---|---|---|---|---|
+| none (8 GT/s) | the card falls off the bus (`Xid 79`) | | | |
+| 5 GT/s (`X1_RISER_SPEED=2`) | fine | 0.42 / 0.38 GB/s | 0 wrong, 32 GB in 60 s both ways | **many** (`RxErr`, `BadTLP`, `BadDLLP`, replay timeouts), from the driver start on |
+| 2.5 GT/s (the default) | fine | 0.21 / 0.19 GB/s | 0 wrong, about an hour of traffic | **none** |
+
+At 5 GT/s the link keeps resending damaged packets, which PCIe does by itself, so the data still arrives right, but
+there is no margin left; 2.5 GT/s is the safe setting for this riser. Install:
+
+```bash
+sudo install -m 0755 scripts/x1-riser-gen1.sh /usr/local/sbin/x1-riser-gen1
+sudo install -m 0644 scripts/x1-riser-gen1.service /etc/systemd/system/
+sudo systemctl enable x1-riser-gen1.service
+```
+
+It only touches cards on an x1 link; undo with `sudo systemctl disable x1-riser-gen1.service`. The NVIDIA module must
+not be in the initramfs (it is not on Ubuntu), or it loads before the service runs.
+
+**Is a riser close to its limit?** Look at the riser link's correctable errors under load: `lspci -vvv` (`CESta` on the
+card and on the port above it) or `/sys/bus/pci/devices/<card>/aer_dev_correctable`. An outside report's USB-cable
+riser ran an RTX A2000 at 8 GT/s for a whole run, but that link logged `RxErr` / `BadTLP` while every other link was
+clean: it works with no margin. The test rig's riser looked the same at 5 GT/s and logged none at 2.5 GT/s (table
+above).
+
 ## Vulkan: the kernel log fills with `dmaAllocMapping_GM107: can't alloc VA space`
 
 Seen with llama.cpp's Vulkan backend on an RTX 3060 12 GB with Resizable BAR (16 GB window) on driver 580 and 595, with
