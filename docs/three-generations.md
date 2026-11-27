@@ -2,15 +2,15 @@
 
 DRMShare lets every card of a mixed set share memory with every other, on NVIDIA's closed driver 580, with no CUDA P2P
 and no patched driver. This page shows it on one machine with three cards of three different generations at once
-(three different sets) and then four generations at once, every copy checked word for word; the NCCL fork's ring over
-all of them; and llama.cpp across them. Tested 2026-11-27.
+(three different sets), then four and finally five generations at once (Maxwell, Pascal, Volta, Turing and Ampere),
+every copy checked word for word; the NCCL fork's ring over all of them; and llama.cpp across them. Tested 2026-11-27.
 
 ## The machine
 
 | | |
 |---|---|
 | Board, CPU | MSI MPG B550 GAMING PLUS, Ryzen 9 3900X, 8 GB RAM, 850 W supply |
-| Slots | a passive **x16 -> 4 x x4 bifurcation splitter** (Gen 3, cables to four riser boards) in the CPU's x16 slot; the board's settings **PCI_E1 Lanes Configuration x4x4x4x4** and **PCI_E1 Gen Switch Gen3**. Each card on the splitter sits on its own CPU port at PCIe 3.0 x4 (about 3.3 GB/s each way). For the fourth card, the board's second x16-size slot (wired to the chipset, PCIe 3.0 x4): one card behind the chipset is fine, two are not |
+| Slots | a passive **x16 -> 4 x x4 bifurcation splitter** (Gen 3, cables to four riser boards) in the CPU's x16 slot; the board's settings **PCI_E1 Lanes Configuration x4x4x4x4** and **PCI_E1 Gen Switch Gen3**. Each card on the splitter sits on its own CPU port at PCIe 3.0 x4 (about 3.3 GB/s each way). In the four- and five-card sets one more card in the board's second x16-size slot (wired to the chipset, PCIe 3.0 x4): one card behind the chipset is fine, two are not |
 | Driver | NVIDIA's closed 580.178.04 with DRMShare's `nvidia-drm` ([volta-dmabuf.md](volta-dmabuf.md)), the IOMMU in passthrough mode |
 | CUDA | Ubuntu's CUDA 12.4 (CUDA 13 dropped Maxwell, Pascal and Volta), built for sm_50, 61, 70, 75 and 86 in one build; NCCL 2.32.6, the NCCL fork of [nccl.md](nccl.md), llama.cpp-drmshare |
 
@@ -31,51 +31,60 @@ writing into and reading the other's memory), then all directions at once for 60
 | GTX 1070 Ti + RTX 3090 + Tesla V100 | **Pascal + Ampere + Volta** | 3.30 / 3.29-3.31 GB/s, 0 wrong | 6 directions, **203 GB checked, 0 wrong** | no Xid, no PCIe error |
 | GTX 750 Ti + RTX 3090 + Tesla V100 | **Maxwell + Ampere + Volta** | 3.29-3.30 / 3.29-3.31 GB/s, 0 wrong | 6 directions, **201 GB checked, 0 wrong** | no Xid, no PCIe error |
 | RTX 2060 + GTX 750 Ti + RTX 3090 + Tesla V100 | **Turing + Maxwell + Ampere + Volta** | 3.29-3.31 GB/s between the splitter cards; the 2060 (chipset slot) 2.96 in, 3.28 out, its memory read at 1.1, 0 wrong | 12 directions, **227 GB checked, 0 wrong** | no Xid; the 2060's chipset link logged correctable errors (resent by PCIe, data right) |
+| GTX 1070 Ti + GTX 750 Ti + RTX 2060 + RTX 3090 + Tesla V100 | **Pascal + Maxwell + Turing + Ampere + Volta** | 3.27-3.31 GB/s between the four splitter cards; the 1070 Ti (chipset slot) 2.92 in, 3.26 out, its memory read at 1.15, 0 wrong | 20 directions, **198 GB checked, 0 wrong** (32 MiB buffers, see below) | no Xid, no PCIe error |
 
 Every direction on the splitter runs at the x4 link's limit, reads as fast as writes. Reads of the card behind the
-chipset are slower (1.1 GB/s), as on this board before. The GTX 1070 Ti and GTX 750 Ti share buffers of up to about
+chipset are slower (1.1 GB/s), as on this board before. With five cards, all 20 directions at once means each card is
+written by four others at the same time; with 64 MiB buffers that is 256 MiB into one card, more than the fixed 256 MB
+window of the GTX 1070 Ti, 750 Ti or RTX 2060 holds, so 3 of the 20 could not map their buffer and stopped with an error
+(`Failed to map NvKmsKapiMemory` in the kernel log) while the other 17 ran (236 GB, 0 wrong); with 32 MiB buffers all 20 ran. The GTX 1070 Ti and GTX 750 Ti share buffers of up to about
 192-224 MiB (their fixed 256 MB windows), the RTX 2060 too until its window is enlarged; the others share everything.
 Maxwell is the oldest generation NVIDIA's driver 580 still runs.
 
-## NCCL: one ring over three and four generations
+## NCCL: one ring over three, four and five generations
 
 The NCCL fork ([nccl.md](nccl.md)) builds one ring over all the cards, each card's CUDA device matched to its Vulkan
 device (`DRMShare: CUDA device 0 = Vulkan NVIDIA GeForce GTX 1650 SUPER`, `1 = ... RTX 3090`, `2 = Tesla V100`), every
-connection card to card (six on three cards, eight on four, the card behind the chipset reaching the others through
-the CPU). Every result checked:
+connection card to card (NCCL's log shows 6 connections `via DRM` on three cards, 8 on four, 20 on five; the card
+behind the chipset reaches the others through the CPU). Every result checked:
 
-| Check | Turing + Ampere + Volta | Pascal + Ampere + Volta | Maxwell + Ampere + Volta | Turing + Maxwell + Ampere + Volta |
-|---|---|---|---|---|
-| Back-to-back all-reduces, card to card, 64 KiB-4 MiB x 3,000, f32 and bf16 (`readback`) | 0 wrong | 0 wrong | 0 wrong | 0 wrong |
-| Through the two lanes, 4-16 MiB x 300, f32 and bf16 | 0 wrong | 0 wrong | 0 wrong | 0 wrong |
-| Card to card with `release` ordering, f32 x 3,000 (and its probes) | 0 wrong | 0 wrong | 0 wrong (10 probes) | 0 wrong (10 probes) |
-| `all_reduce_perf`, every result checked; 128 MiB, stock / fork | 0 wrong; 2.38 / 1.53 GB/s | 0 wrong; 2.34 / 1.52 GB/s | 0 wrong; 2.44 / 1.53 GB/s | 0 wrong; 2.14 / 1.44 GB/s |
+| Check | Turing + Ampere + Volta | Pascal + Ampere + Volta | Maxwell + Ampere + Volta | Turing + Maxwell + Ampere + Volta | Pascal + Maxwell + Turing + Ampere + Volta |
+|---|---|---|---|---|---|
+| Back-to-back all-reduces, card to card, 64 KiB-4 MiB x 3,000, f32 and bf16 (`readback`) | 0 wrong | 0 wrong | 0 wrong | 0 wrong | 0 wrong |
+| Through the two lanes, 4-16 MiB x 300, f32 and bf16 | 0 wrong | 0 wrong | 0 wrong | 0 wrong | 0 wrong |
+| Card to card with `release` ordering, f32 x 3,000 (and its probes) | 0 wrong | 0 wrong | 0 wrong (10 probes) | 0 wrong (10 probes) | 0 wrong (10 probes) |
+| `all_reduce_perf`, every result checked; 128 MiB, stock / fork | 0 wrong; 2.38 / 1.53 GB/s | 0 wrong; 2.34 / 1.52 GB/s | 0 wrong; 2.44 / 1.53 GB/s | 0 wrong; 2.14 / 1.44 GB/s | 0 wrong; 2.13 / 1.14 GB/s |
 
 **`release` needs a fast link.** The same GTX 750 Ti + RTX 3090 with the 750 Ti's splitter port held at 2.5 GT/s (no
 riser, no chipset, the same cable): `release` gave wrong values in 20 of 20 short probes and 221,232 wrong elements in
 a full run (almost all at 64 KiB-1 MiB), `readback` 0 wrong. At 8 GT/s the same pair was clean with both. Earlier
 `release` failures on a USB x1 riser and on a card behind the chipset fit this: use `readback` on any slow link
-([nccl.md](nccl.md)).
+([nccl.md](nccl.md)). In the five-card set the GTX 1070 Ti behind the chipset passed `release` (10 probes and a full
+run), but one clean run says little where the GTX 750 Ti in that slot failed in 2 of 61.
 
 ## llama.cpp: Qwen3.8-27B Q8_0 across them
 
 llama.cpp-drmshare, CUDA, tensor split (`-sm tensor`), tokens/s, 2048-token prompt / generation; perplexity over 8
 chunks of 512; `llama-server` with MTP 3 and with a DFlash2 draft, 5 requests at temperature 0, answers compared byte for
-byte. Three cards with the RTX 3090 capped at 250 W; the four-card set with `-ub 512` (the GTX 750 Ti has 2 GB):
+byte. Three cards with the RTX 3090 capped at 250 W; the four- and five-card sets with `-ub 512` (the GTX 750 Ti has
+2 GB). For five cards on the 850 W supply every card was power-capped (RTX 3090 150 W, V100 125 W, GTX 1070 Ti 120 W,
+RTX 2060 125 W), which costs generation speed: the RTX 3090 + V100 pair alone gives 15.6 tokens/s with these caps,
+32.2 without:
 
-| | Turing + Ampere + Volta | Pascal + Ampere + Volta | Turing + Maxwell + Ampere + Volta |
-|---|---|---|---|
-| stock NCCL (through host memory) | 460 / 30.8 | **756** / 31.4 | 350 / 25.1 |
-| the NCCL fork (card to card) | 405 / 30.8 | 611 / 31.5 | 322 / 25.0 |
-| perplexity, stock / fork | 5.9977 / 5.9977, every chunk identical | 5.9934 / 5.9934, every chunk identical | 5.9942 / 5.9942, every chunk identical |
-| MTP 3, stock / fork | 49.9 / 49.9, answers 5 of 5 identical | 50.2 / 50.4, answers 5 of 5 identical | 37.1 / 37.0, answers 5 of 5 identical |
-| DFlash2 draft, stock / fork | 51.8 / 51.8, answers 5 of 5 identical | 51.0 / 51.0, answers 5 of 5 identical | 37.0 / 36.9, answers 5 of 5 identical |
-| for comparison: RTX 3090 + V100 alone, stock / fork | 838 / 32.2, 857 / 32.1 | 826 / 32.2, 881 / 32.2 | 831 / 32.2, 863 / 32.1 |
+| | Turing + Ampere + Volta | Pascal + Ampere + Volta | Turing + Maxwell + Ampere + Volta | Pascal + Maxwell + Turing + Ampere + Volta (power-capped) |
+|---|---|---|---|---|
+| stock NCCL (through host memory) | 460 / 30.8 | **756** / 31.4 | 350 / 25.1 | 375 / 21.0 |
+| the NCCL fork (card to card) | 405 / 30.8 | 611 / 31.5 | 322 / 25.0 | 314 / 21.0 |
+| perplexity, stock / fork | 5.9977 / 5.9977, every chunk identical | 5.9934 / 5.9934, every chunk identical | 5.9942 / 5.9942, every chunk identical | 5.9931 / 5.9931, every chunk identical |
+| MTP 3, stock / fork | 49.9 / 49.9, answers 5 of 5 identical | 50.2 / 50.4, answers 5 of 5 identical | 37.1 / 37.0, answers 5 of 5 identical | 37.0 / 36.6, answers 5 of 5 identical |
+| DFlash2 draft, stock / fork | 51.8 / 51.8, answers 5 of 5 identical | 51.0 / 51.0, answers 5 of 5 identical | 37.0 / 36.9, answers 5 of 5 identical | 42.5 / 42.5, answers 5 of 5 identical |
+| for comparison: RTX 3090 + V100 alone, stock / fork | 838 / 32.2, 857 / 32.1 | 826 / 32.2, 881 / 32.2 | 831 / 32.2, 863 / 32.1 | 784 / 15.6, 796 / 15.7 (same caps) |
 
 ## What it shows, and what it does not
 
-- **It works**: three and four generations share memory pair by pair and in one NCCL ring, with not one wrong word or
-  element in hundreds of gigabytes per set, and llama.cpp gives the same answers through the fork as through stock NCCL.
+- **It works**: three, four and five generations share memory pair by pair and in one NCCL ring, with not one wrong
+  word or element in hundreds of gigabytes per set, and llama.cpp gives the same answers through the fork as through
+  stock NCCL, a 27B model split across all five cards included.
 - **It is not faster.** Smaller cards slow the split model down (each layer waits for every card's share: much less
   with the GTX 1070 Ti, 756 tokens/s, than with the GTX 1650 SUPER, 460, or with the GTX 750 Ti and RTX 2060 together,
   350), and with every card on its own CPU link NCCL's route through host memory beats the fork's card-to-card route:
