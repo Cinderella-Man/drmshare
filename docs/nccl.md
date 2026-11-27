@@ -4,9 +4,10 @@
 > all-reduces **44 % faster** than NCCL does through host RAM and makes plain llama.cpp **29 % faster** on prompts. Most
 > of llama.cpp's gain on this pair comes from llama.cpp itself, on stock NCCL (the
 > [P2P guide's llama.cpp section](https://github.com/Cinderella-Man/how-to-enable-p2p-on-nvidia-gpus#llamacpp-build-it-with-nccl)):
-> on top of those changes the fork adds **5 %** (974 -> 1,017-1,028 tokens/s). Tested on one pair for one evening;
-> results below. Also run on a GTX 750 Ti (Maxwell) + RTX 3090, where the default ordering let wrong data through:
-> on that card use `NCCL_DRMSHARE_ORDER=readback` ([Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090)).
+> on top of those changes the fork adds **5 %** (974 -> 1,017-1,028 tokens/s), all from the large all-reduces of prompt
+> processing: small ones keep NCCL's own path. Since then also run on three RTX 3090s for four hours and in rings over
+> three and four GPU generations ([three-generations.md](three-generations.md)), every answer identical to stock NCCL. On a
+> slow link the default ordering lets wrong data through: use `NCCL_DRMSHARE_ORDER=readback` there ([settings](#3-run)).
 
 NVIDIA's NCCL moves data between GPUs for CUDA programs. Between two cards that CUDA refuses to pair, like a Tesla V100
 and an RTX 3090 (two GPU generations: no peer access), NCCL has no direct route and goes through host RAM. This page
@@ -104,7 +105,7 @@ tools/llama.cpp/build-cuda/bin/llama-bench -m model.gguf -ngl 99 -sm tensor -p 2
 |---|---|
 | `NCCL_DRMSHARE_TRANSPORT=1` | turns the transport on. With none of the `NCCL_DRMSHARE_` variables set, the fork behaves as NCCL 2.32.6 |
 | `NCCL_DRMSHARE_SPLIT_BYTES=<bytes>` | **two lanes**: all-reduces below go through NCCL's shared memory (about 13 µs for a small one), larger ones card to card. llama.cpp's generation makes about 128 small all-reduces per token; without the cut each pays the copy engine's 28-45 µs. Set it only together with `NCCL_DRMSHARE_TRANSPORT=1`: alone, it sends large transfers through NCCL's socket network |
-| `NCCL_DRMSHARE_ORDER` | `release` (the default): every card writes its own data into the other, each copy followed by Vulkan's release of that memory to the other device; reads nothing across; 98 % of the raw speed; passed the stale-step test below on the V100 + RTX 3090 and on three RTX 3090s. `readback`: after each copy, 4 bytes are read back from the destination; slower (see the tables), and correct on every pair tested. **`release` let wrong data through on two pairs: a GTX 750 Ti (Maxwell) with an RTX 3090 (2 runs in about 50) and a V100 with a GTX 1650 SUPER on a slow x1 riser (every run, up to 6.5 % of the elements); `readback` did not on either. Use `readback` unless the stale-step test ([5](#5-check-that-the-results-are-right)) passes with `release` on your cards** ([Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090), [three generations](#three-generations-a-v100-a-gtx-1650-super-and-an-rtx-3090)) |
+| `NCCL_DRMSHARE_ORDER` | `release` (the default): every card writes its own data into the other, each copy followed by Vulkan's release of that memory to the other device; reads nothing across; 98 % of the raw speed; passed the stale-step test below on the V100 + RTX 3090 and on three RTX 3090s. `readback`: after each copy, 4 bytes are read back from the destination; slower (see the tables), and correct on every pair tested. **`release` let wrong data through on two pairs: a GTX 750 Ti (Maxwell) with an RTX 3090 (2 runs in about 50) and a V100 with a GTX 1650 SUPER on a slow x1 riser (every run, up to 6.5 % of the elements); `readback` did not on either. The cause is the slow link, not the cable: a GTX 750 Ti whose port was held at 2.5 GT/s on a clean splitter cable failed with `release` in every run and was clean with it at 8 GT/s ([three-generations.md](three-generations.md#nccl-one-ring-over-three-and-four-generations)). Use `readback` on any slow link, and unless the stale-step test ([5](#5-check-that-the-results-are-right)) passes with `release` on your cards** ([Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090), [three generations](#three-generations-a-v100-a-gtx-1650-super-and-an-rtx-3090)) |
 | `NCCL_DRMSHARE_NOREAD=<bus id>` | `readback` only: a card whose memory must not be read by the other card fetches its data itself. Set it for a **Tesla V100 in a chipset slot**, which can freeze when another card reads its memory ([troubleshooting](troubleshooting.md#a-tesla-v100-in-a-chipset-slot-freezes-xid-62-while-another-card-reads-its-memory)); `release` never reads across anyway. The bus id from `nvidia-smi --query-gpu=name,pci.bus_id --format=csv`, any unique part of it (`04:00`) |
 
 ### Faster: llama.cpp-drmshare's tensor-parallel changes
@@ -304,8 +305,8 @@ It runs, and the answers hold: perplexity over 8 chunks 5.9998 on three cards ag
 order of summing), 6.0008 on Vulkan; nothing in the kernel log. The third card only costs speed here, because every
 all-reduce waits for its 0.25 GB/s riser; an outside report on an Intel board found three cards slower than two as well.
 
-**The same three cards on CPU lanes: one ring across three generations** (with a second set, GTX 1070 Ti + RTX 3090 +
-V100, side by side in [three-generations.md](three-generations.md)). The same day the board was rebuilt with a
+**The same three cards on CPU lanes: one ring across three generations** (with the other sets, GTX 1070 Ti or GTX 750
+Ti + RTX 3090 + V100, and a ring over four generations, in [three-generations.md](three-generations.md)). The same day the board was rebuilt with a
 bifurcation splitter in the CPU slot (x16 -> 4 x x4, Gen 3; the board's lane setting x4x4x4x4 and its speed Gen3): each
 card on its own CPU port at PCIe 3.0 x4, nothing behind the chipset. Now every pair reaches every other
 (memory sharing 3.30 GB/s each way, all six directions at once 196 GB checked, 0 wrong), and the fork builds one ring
@@ -355,8 +356,8 @@ over Turing, Ampere and Volta (`DRMShare: CUDA device 0 = Vulkan NVIDIA GeForce 
 - **One process only.** Programs with one process per GPU (PyTorch's DDP, vLLM, most NCCL launchers) get no `via DRM`
   connection.
 - **Tested on**: a Tesla V100 + RTX 3090 and a GTX 750 Ti + RTX 3090 on NVIDIA's closed 580 (where `release` failed on
-  the Maxwell card and `readback` held: [Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090)), a V100 + GTX 1650 SUPER and
-  all three generations in one ring on 580 ([three generations](#three-generations-a-v100-a-gtx-1650-super-and-an-rtx-3090)),
+  the Maxwell card and `readback` held: [Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090)), a V100 + GTX 1650 SUPER, and
+  rings over three and four generations on 580 (Maxwell, Pascal, Volta, Turing, Ampere: [three-generations.md](three-generations.md)),
   and three RTX 3090s on driver 615 for four hours ([above](#three-rtx-3090s-on-driver-615-a-four-hour-stress)).
 - **Not always faster**: on cards that all have their own CPU lanes, stock NCCL through host memory was faster
   ([three generations](#three-generations-a-v100-a-gtx-1650-super-and-an-rtx-3090)); the gain comes where a card's link
