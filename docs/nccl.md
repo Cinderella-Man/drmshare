@@ -304,6 +304,30 @@ It runs, and the answers hold: perplexity over 8 chunks 5.9998 on three cards ag
 order of summing), 6.0008 on Vulkan; nothing in the kernel log. The third card only costs speed here, because every
 all-reduce waits for its 0.25 GB/s riser; an outside report on an Intel board found three cards slower than two as well.
 
+**The same three cards on CPU lanes: one ring across three generations.** The same day the board was rebuilt with a
+bifurcation splitter in the CPU slot (x16 -> 4 x x4, Gen 3; the board's lane setting x4x4x4x4 and its speed Gen3): each
+card on its own CPU port at PCIe 3.0 x4, nothing behind the chipset. Now every pair reaches every other
+(memory sharing 3.30 GB/s each way, all six directions at once 196 GB checked, 0 wrong), and the fork builds one ring
+over Turing, Ampere and Volta (`DRMShare: CUDA device 0 = Vulkan NVIDIA GeForce GTX 1650 SUPER`, `1 = ... RTX 3090`,
+`2 = Tesla V100`, six connections `via DRM`):
+
+- **Correct**: the back-to-back test card to card and through the two lanes, f32 and bf16, 0 wrong; `all_reduce_perf`
+  over three cards, every result checked, 0 wrong; perplexity identical to stock NCCL chunk for chunk; `llama-server`
+  with MTP 3 and with the DFlash2 draft, every answer identical (5 of 5 each). **`release` held here too** (0 wrong,
+  3,000 all-reduces per size): on the slow riser it failed, at x4 it did not.
+- **But not faster**: with every card on its own CPU link, NCCL's route through host memory is the better one.
+
+  | Qwen3.8-27B Q8_0, tokens/s, prompt 2048 / generation | stock NCCL | this fork |
+  |---|---|---|
+  | `all_reduce_perf`, three cards, 8-128 MiB | 2.33-2.38 GB/s | 1.51-1.54 GB/s (`readback` or `release`) |
+  | RTX 3090 + V100 | 838 / 32.2 | 857 / 32.1 |
+  | all three | **460 / 30.8** | 405 / 30.8 |
+
+  One pair alone copies at 3.30 GB/s, but in a ring every card sends and receives at once, and all the card-to-card
+  traffic turns at the CPU (about 1.5 GB/s per card here), while each card's own x4 link to host memory carries the
+  shared-memory route at 2.4. **The fork pays off where a card's path to host memory is the bottleneck** (a card in a
+  chipset slot: +29 % on the V100 + RTX 3090), **not when every card has CPU lanes**: measure both on your machine.
+
 ## How it works
 
 - **The transport** (`src/transport/drmshare.cc`) follows NCCL's P2P transport in its copy-engine mode. The receiving
@@ -330,8 +354,12 @@ all-reduce waits for its 0.25 GB/s riser; an outside report on an Intel board fo
 - **One process only.** Programs with one process per GPU (PyTorch's DDP, vLLM, most NCCL launchers) get no `via DRM`
   connection.
 - **Tested on**: a Tesla V100 + RTX 3090 and a GTX 750 Ti + RTX 3090 on NVIDIA's closed 580 (where `release` failed on
-  the Maxwell card and `readback` held: [Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090)), and three RTX 3090s on
-  driver 615 for four hours ([above](#three-rtx-3090s-on-driver-615-a-four-hour-stress)).
+  the Maxwell card and `readback` held: [Maxwell](#maxwell-a-gtx-750-ti-with-an-rtx-3090)), a V100 + GTX 1650 SUPER and
+  all three generations in one ring on 580 ([three generations](#three-generations-a-v100-a-gtx-1650-super-and-an-rtx-3090)),
+  and three RTX 3090s on driver 615 for four hours ([above](#three-rtx-3090s-on-driver-615-a-four-hour-stress)).
+- **Not always faster**: on cards that all have their own CPU lanes, stock NCCL through host memory was faster
+  ([three generations](#three-generations-a-v100-a-gtx-1650-super-and-an-rtx-3090)); the gain comes where a card's link
+  to host memory is the narrow one.
 - **Every pair of cards in the ring must carry peer traffic.** NCCL's ring uses every pair on three cards; two cards
   behind one AMD chipset cannot reach each other ([troubleshooting](troubleshooting.md#two-cards-behind-one-amd-chipset-the-copy-finishes-nothing-arrives)),
   so such a set of cards cannot use this transport. The fork has no way yet to keep one pair on shared memory.

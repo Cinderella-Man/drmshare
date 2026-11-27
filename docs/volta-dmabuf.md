@@ -356,7 +356,13 @@ All four directions at once for 60 seconds, 64 MiB blocks with random pauses: **
 1.95 GB/s on the 3090 pair, 0.17 + 0.20 GB/s on the 1650 SUPER pair), nothing in the kernel log. The first TU116 with
 DRMShare: it works, at whatever its link carries.
 
-The NCCL fork on the V100 + GTX 1650 SUPER, and llama.cpp across all three cards:
+**The same three cards on CPU lanes** (the board rebuilt the same day with a x16 -> 4 x x4 Gen 3 bifurcation splitter
+in the CPU slot, the board's lane setting x4x4x4x4 and its speed Gen3; with the defaults the board found no card behind
+the splitter at all: no picture, its VGA debug light on): each card on its own CPU port at PCIe 3.0 x4. **All six
+directions work, the RTX 3090 <-> GTX 1650 SUPER pair included: 3.30 GB/s writes and 3.28-3.31 GB/s reads every way,
+0 wrong; all six at once for 60 seconds, 196 GB checked, 0 wrong**, no link errors on the splitter's cables.
+
+The NCCL fork on the V100 + GTX 1650 SUPER, one ring over all three, and llama.cpp across all three cards:
 [nccl.md](nccl.md#three-generations-a-v100-a-gtx-1650-super-and-an-rtx-3090).
 
 ## V6. llama.cpp: tensor-parallel with an all-reduce through shared video memory
