@@ -6,7 +6,8 @@ One opt-in option in `nvidia-drm`, the part of NVIDIA's Linux driver that ships 
 import another GPU's video memory through a Linux **dma-buf**. Each card then copies straight into the other's memory
 over PCIe, instead of through host RAM. It works on pairs CUDA refuses, because they are of different generations: a
 Tesla V100 with an RTX 3090, an RTX 2060, a GTX 1650 SUPER or a GTX 1070 Ti, a GTX 750 Ti (Maxwell) with an RTX 3090,
-and an RTX 2060 with an RTX 3060. It runs on NVIDIA's own
+and an RTX 2060 with an RTX 3060, and three generations in one machine at once, every pair sharing with every other
+([docs/three-generations.md](docs/three-generations.md)). It runs on NVIDIA's own
 drivers 580, 595 and 615, without a patched driver and without a patched `libcuda`. Vulkan programs use it directly,
 and CUDA programs that exchange data through **NCCL**, such as llama.cpp's CUDA backend, use it through an
 experimental NCCL fork, a drop-in `libnccl.so.2` ([docs/nccl.md](docs/nccl.md)).
@@ -174,6 +175,7 @@ every pair from this repository and from the P2P guide, side by side. The `not t
 | [docs/volta-dmabuf.md](docs/volta-dmabuf.md) | Where it started: a Tesla V100 with an RTX 3090 (also an RTX 2060 and a GTX 1070 Ti) on NVIDIA's driver 580. Why nothing else works for a V100, the change, how to build and load it, tests, the llama.cpp all-reduce (V6), a board that does not carry peer traffic. |
 | [docs/dmabuf-615.md](docs/dmabuf-615.md) | The same on Ubuntu's driver 615 for Turing and newer, tested on an RTX 2060 + RTX 3060; llama.cpp on that pair (D4); three RTX 3090s at once (D5). |
 | [docs/dmabuf-drivers.md](docs/dmabuf-drivers.md) | Every NVIDIA branch from 580 to 620: which version of the change it takes, what was tested, all results in one table, llama.cpp on each driver, how to build for another version. |
+| [docs/three-generations.md](docs/three-generations.md) | Three generations in one machine, two sets (Turing + Ampere + Volta, Pascal + Ampere + Volta) on a bifurcation splitter: memory sharing on every pair (about 200 GB checked per set, 0 wrong), the NCCL fork's ring over all three, Qwen3.8-27B across them with answers identical to stock NCCL. |
 | [docs/nccl.md](docs/nccl.md) | **Experimental**: an NCCL fork with a transport through the shared memory, for CUDA programs on pairs CUDA cannot connect: build, settings, checks, results on the V100 + RTX 3090 (llama.cpp +29 % on prompts, +5 % on top of llama.cpp's own speed-ups; the slots swapped), a GTX 750 Ti, three RTX 3090s on 615 (a four-hour stress) and three generations at once; when to use `readback`. |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | A Tesla V100 in a chipset slot that freezes while another card reads its memory; two cards behind one chipset that cannot reach each other; a card on an x1 riser that falls off the bus; the kernel log filling with `dmaAllocMapping_GM107` lines (static BAR1); driver 595's per-card option that misses one card, with a fix. |
 | [docs/test-rig-log.md](docs/test-rig-log.md) | What was run on the test rig on 2026-11-25, in order: what worked, what did not, the dead ends and false alarms, and what the tests do not show. |

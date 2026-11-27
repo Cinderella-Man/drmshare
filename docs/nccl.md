@@ -304,7 +304,8 @@ It runs, and the answers hold: perplexity over 8 chunks 5.9998 on three cards ag
 order of summing), 6.0008 on Vulkan; nothing in the kernel log. The third card only costs speed here, because every
 all-reduce waits for its 0.25 GB/s riser; an outside report on an Intel board found three cards slower than two as well.
 
-**The same three cards on CPU lanes: one ring across three generations.** The same day the board was rebuilt with a
+**The same three cards on CPU lanes: one ring across three generations** (with a second set, GTX 1070 Ti + RTX 3090 +
+V100, side by side in [three-generations.md](three-generations.md)). The same day the board was rebuilt with a
 bifurcation splitter in the CPU slot (x16 -> 4 x x4, Gen 3; the board's lane setting x4x4x4x4 and its speed Gen3): each
 card on its own CPU port at PCIe 3.0 x4, nothing behind the chipset. Now every pair reaches every other
 (memory sharing 3.30 GB/s each way, all six directions at once 196 GB checked, 0 wrong), and the fork builds one ring
